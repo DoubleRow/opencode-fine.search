@@ -1,16 +1,31 @@
 /**
  * oc-search GUI 入口。
  *
- * 复用 OpenCode 自带的「会话搜索」对话框（mod+shift+f）与命令面板（mod+k）：
- * 在它们的标题搜索之外，把正文命中作为额外的会话结果追加进去。
- * 具体补丁见 ./palette-search。
+ * 1. 复用 OpenCode 自带的「会话搜索」对话框（mod+shift+f）与命令面板（mod+k）：
+ *    在标题搜索之外追加正文命中（见 ./palette-search）。
+ * 2. 选中命中会话后，自动打开详情面板（见 ./panel）。
  */
 
-import { Command, Plugin, type Context } from "@opencode/plugin/gui";
-import { createEffect } from "solid-js";
+import {
+  Command,
+  Panel,
+  Plugin,
+  Style,
+  type Context,
+  type PanelTab,
+} from "@opencode/plugin/gui";
+import { createEffect, createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 
+import { DETAIL_CSS, DETAIL_KEY_ID, DetailPanel } from "./panel";
+import {
+  groupHitsBySession,
+  pendingFor,
+  type DetailSelection,
+  type PendingSelection,
+} from "./panel-model";
 import { installContentSearch } from "./palette-search";
-import { SearchRpc, type StatusOutput } from "./rpc";
+import { SearchRpc, type SearchOutputItem, type StatusOutput } from "./rpc";
 
 function describeStatus(status: StatusOutput): string {
   if (!status.ready) {
@@ -59,13 +74,100 @@ async function probeStatus(ctx: Context) {
 export default Plugin.define({
   setup(ctx) {
     let restore: (() => void) | undefined;
+    const panelKey = `${ctx.id}:${DETAIL_KEY_ID}`;
+    const [pending, setPending] = createSignal<Map<string, PendingSelection>>(new Map());
+    const [selection, setSelection] = createStore<Record<string, DetailSelection>>({});
+    const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function clearPendingTimer(sessionId: string) {
+      const timer = pendingTimers.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        pendingTimers.delete(sessionId);
+      }
+    }
+
+    function recordHits(query: string, items: SearchOutputItem[]) {
+      const groups = groupHitsBySession(items);
+      if (!groups.size) return;
+      const now = Date.now();
+
+      setPending((previous) => {
+        const next = new Map(previous);
+        for (const [sessionId, hits] of groups) {
+          next.set(sessionId, { query, hits, at: now });
+        }
+        return next;
+      });
+
+      for (const sessionId of groups.keys()) {
+        clearPendingTimer(sessionId);
+        const timer = setTimeout(() => {
+          pendingTimers.delete(sessionId);
+          setPending((previous) => {
+            const entry = previous.get(sessionId);
+            if (entry && Date.now() - entry.at <= 5000) return previous;
+            const next = new Map(previous);
+            next.delete(sessionId);
+            return next;
+          });
+        }, 5100);
+        pendingTimers.set(sessionId, timer);
+      }
+    }
 
     // client 会在 server 重启后更换；effect 跟随它重新安装补丁。
     createEffect(() => {
       const client = ctx.client;
       restore?.();
       restore = undefined;
-      if (client) restore = installContentSearch(client);
+      if (client) restore = installContentSearch(client, { onHits: recordHits });
+    });
+
+    // 搜索命中后，用户选中对应会话时自动打开详情面板（5 秒窗口）。
+    createEffect(() => {
+      const current = ctx.sessions.current();
+      const entry = current ? pendingFor(pending(), current.id) : undefined;
+      if (!current || !entry) return;
+
+      clearPendingTimer(current.id);
+      setPending((previous) => {
+        const next = new Map(previous);
+        next.delete(current.id);
+        return next;
+      });
+      setSelection(current.id, {
+        query: entry.query,
+        hits: entry.hits,
+        at: entry.at,
+        index: 0,
+      });
+      ctx.layout.open(panelKey, current, { tab: "select" });
+    });
+
+    ctx.add(Style, DETAIL_CSS);
+
+    const detailTab: PanelTab = {
+      id: DETAIL_KEY_ID,
+      title: "详情",
+      closable: "hover",
+    };
+
+    ctx.add(Panel, {
+      id: DETAIL_KEY_ID,
+      region: "side",
+      mobile: { title: "详情", order: 20, kind: "drawer", icon: "magnifying-glass" },
+      list: () => [detailTab],
+      render: (props) => (
+        <DetailPanel
+          ctx={ctx}
+          session={props.session}
+          tab={props.tab}
+          panelKey={panelKey}
+          selection={() => selection[props.session.id]}
+          onIndex={(index) => setSelection(props.session.id, "index", index)}
+        />
+      ),
     });
 
     ctx.add(Command, (): Command => ({
@@ -80,6 +182,8 @@ export default Plugin.define({
 
     return () => {
       restore?.();
+      for (const timer of pendingTimers.values()) clearTimeout(timer);
+      pendingTimers.clear();
     };
   },
 });

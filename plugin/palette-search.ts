@@ -10,7 +10,7 @@
 
 import type { OpenCodeClient } from "@opencode/client";
 
-import { SearchRpc, type SearchOutput } from "./rpc.ts";
+import { SearchRpc, type SearchOutput, type SearchOutputItem } from "./rpc.ts";
 
 const PATCH_MARK = Symbol.for("opencode-fine.search.content-search");
 
@@ -21,6 +21,8 @@ export interface ContentSearchOptions {
   timeoutMs?: number;
   /** 测试注入点；默认调用 sidecar RPC。 */
   search?: (query: string, signal?: AbortSignal) => Promise<SearchOutput>;
+  /** 每次正文检索命中后回调，供详情面板记录待打开会话。 */
+  onHits?: (query: string, items: SearchOutputItem[]) => void;
 }
 
 export function contentTitle(query: string, snippet: string, realTitle: string): string {
@@ -76,6 +78,7 @@ export function installContentSearch(
 
       const result = await search(query, signal);
       if (!result.items.length) return originalList(input, requestOptions);
+      options.onHits?.(query, result.items);
 
       const requested = Math.max(Number(input?.limit) || limit, limit);
       const pool = await originalList(
