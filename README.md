@@ -107,7 +107,13 @@ node plugin/worker.mjs search 连接池 --limit 3   # 命令行验证同一套�
 }
 ```
 
-之后在 **Settings > Extensions > Plugins** 可见；会话标题行右侧的搜索图标与 `mod+shift+g` 命令会先探测索引状态。
+之后在 **Settings > Extensions > Plugins** 可见。搜索入口复用 OpenCode 原生「会话搜索」：
+
+- `Ctrl/Cmd+Shift+F` 打开搜索框，输入关键词；标题命中之外会追加以 `[正文]` 开头的正文命中。
+- `Ctrl/Cmd+K` 命令面板同样生效；选中结果仍按真实会话 ID 打开。
+- 命令「全文检索：状态与自检」可查看索引状态并验证补丁是否生效。
+
+实现方式是在 GUI 侧包装 sidecar client 的 `session.list`，只在 `search` 非空时追加结果；索引异常/超时自动退回官方标题搜索，不改任何会话数据。
 临时覆盖：`OC_SEARCH_INDEX` 指定索引文件，`OC_SEARCH_NODE` 指定 node 绝对路径，`OC_SEARCH_VERBOSE=1` 输出同步进度。
 
 ## 开发
