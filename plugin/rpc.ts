@@ -129,6 +129,41 @@ export const SearchRpc = Rpc.define({
         },
       },
     },
+    summary: {
+      input: {
+        type: "object",
+        properties: { sessionId: { type: "string" } },
+        required: ["sessionId"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["llm", "memory", "auto"] },
+          project: { type: "string" },
+          doing: { type: "string" },
+          solved: { type: "string" },
+          sessionCount: { type: "integer" },
+          lastActive: { type: "integer" },
+        },
+        required: ["source", "project", "doing", "solved", "sessionCount", "lastActive"],
+        additionalProperties: false,
+      },
+      errors: {
+        not_found: {
+          type: "object",
+          properties: { sessionId: { type: "string" } },
+          required: ["sessionId"],
+          additionalProperties: false,
+        },
+        index_error: {
+          type: "object",
+          properties: { message: { type: "string" } },
+          required: ["message"],
+          additionalProperties: false,
+        },
+      },
+    },
     status: {
       input: {
         type: "object",
@@ -200,6 +235,17 @@ export interface ReadOutput {
   title: string;
   directory: string;
   text: string;
+}
+
+export type SummarySource = "llm" | "memory" | "auto";
+
+export interface SummaryOutput {
+  source: SummarySource;
+  project: string;
+  doing: string;
+  solved: string;
+  sessionCount: number;
+  lastActive: number;
 }
 
 export interface StatusOutput {

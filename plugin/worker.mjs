@@ -21,26 +21,37 @@ import {
   deleteIndexMessage,
   deleteIndexSession,
   emptyStatus,
+  getIndexSession,
   getMessageFingerprints,
+  getSummary,
   indexCounts,
   indexStatus,
   listIndexSessionIds,
   openIndex,
   readSegment,
   replaceIndexMessage,
+  saveSummary,
   searchSegments,
   setMeta,
   upsertSession,
 } from "../lib/index-db.mjs";
+import {
+  autoSummary,
+  chooseSummary,
+  fetchMemorySummaries,
+  projectName,
+} from "../lib/summary.mjs";
 
 const SOURCE_DB =
   process.env.OPENCODE_DB || join(homedir(), ".local/share/opencode", "opencode.db");
 
 const SYNC_INTERVAL_MS = 10_000;
 const BATCH_SIZE = 200;
+const MEMORY_TTL_MS = 10 * 60 * 1000;
 
 let indexDb = null;
 let lastSyncCheck = 0;
+let memoryCache = { at: 0, map: new Map() };
 
 function log(message) {
   if (process.env.OC_SEARCH_VERBOSE === "1") {
@@ -306,6 +317,105 @@ function doRead(params = {}) {
   return readSegment(db, segmentId);
 }
 
+async function getMemoryMap() {
+  if (Date.now() - memoryCache.at < MEMORY_TTL_MS) return memoryCache.map;
+  const map = await fetchMemorySummaries();
+  memoryCache = { at: Date.now(), map };
+  return map;
+}
+
+function segmentText(db, sessionId, kind, direction) {
+  const row = db.prepare(
+    `SELECT text FROM segment
+     WHERE session_id = ? AND kind = ?
+     ORDER BY ts ${direction}, id ${direction}
+     LIMIT 1`,
+  ).get(String(sessionId), String(kind));
+  return row ? String(row.text || "") : "";
+}
+
+function projectStats(db, project, fallbackUpdated) {
+  const rows = db.prepare("SELECT directory, time_updated FROM session").all();
+  let count = 0;
+  let lastActive = 0;
+  for (const row of rows) {
+    if (projectName(row.directory) !== project) continue;
+    count += 1;
+    lastActive = Math.max(lastActive, Number(row.time_updated) || 0);
+  }
+  if (!count) {
+    count = 1;
+    lastActive = fallbackUpdated || 0;
+  }
+  return { count, lastActive };
+}
+
+async function doSummary(params = {}) {
+  ensureFresh();
+  const db = getIndex();
+  const sessionId = String(params.sessionId ?? "").trim();
+  if (!sessionId) {
+    const error = new Error("sessionId 无效");
+    error.code = "not_found";
+    throw error;
+  }
+
+  const session = getIndexSession(db, sessionId);
+  if (!session) {
+    const error = new Error(`会话不在索引中: ${sessionId}`);
+    error.code = "not_found";
+    throw error;
+  }
+
+  const auto = autoSummary({
+    title: session.title,
+    directory: session.directory,
+    firstUser: segmentText(db, sessionId, "user", "ASC"),
+    lastAssistant: segmentText(db, sessionId, "assistant", "DESC"),
+    lastTool: segmentText(db, sessionId, "tool", "DESC"),
+  });
+
+  const stored = getSummary(db, sessionId);
+  const memories = await getMemoryMap();
+  const memory = memories.get(sessionId) ?? null;
+  const chosen = chooseSummary({
+    stored,
+    memory,
+    auto,
+    sessionUpdated: session.time_updated,
+  });
+
+  if (chosen.source === "auto") {
+    const changed =
+      !stored ||
+      stored.source !== "auto" ||
+      stored.project !== chosen.project ||
+      stored.doing !== chosen.doing ||
+      stored.solved !== chosen.solved ||
+      stored.updatedAt < (session.time_updated || 0);
+    if (changed) {
+      saveSummary(db, {
+        sessionId,
+        source: "auto",
+        project: chosen.project,
+        doing: chosen.doing,
+        solved: chosen.solved,
+        updatedAt: Date.now(),
+      });
+    }
+  }
+
+  const stats = projectStats(db, chosen.project, session.time_updated);
+  return {
+    source: chosen.source,
+    project: chosen.project,
+    doing: chosen.doing,
+    solved: chosen.solved,
+    sessionCount: stats.count,
+    lastActive: stats.lastActive,
+  };
+}
+
 // ---------- 单次 CLI ----------
 
 const USAGE = `用法:
@@ -313,6 +423,7 @@ const USAGE = `用法:
   node plugin/worker.mjs sync [--json]
   node plugin/worker.mjs search <关键词...> [选项]
   node plugin/worker.mjs read <segmentId> [--json]
+  node plugin/worker.mjs summary <sessionId> [--json]
   node plugin/worker.mjs --serve
 
 search 选项:
@@ -382,7 +493,13 @@ const KIND_LABEL = {
   compaction: "摘要",
 };
 
-function runCli(argv) {
+const SOURCE_LABEL = {
+  llm: "LLM",
+  memory: "记忆",
+  auto: "自动",
+};
+
+async function runCli(argv) {
   if (argv[0] === "--serve" || argv[0] === "serve") {
     return serve();
   }
@@ -459,6 +576,26 @@ function runCli(argv) {
     return result.items.length ? 0 : 1;
   }
 
+  if (command === "summary") {
+    const sessionId = positional[0];
+    if (!sessionId) {
+      process.stderr.write(`summary 需要 sessionId\n\n${USAGE}`);
+      return 2;
+    }
+    const result = await doSummary({ sessionId });
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        `来源 ${SOURCE_LABEL[result.source] || result.source}\n` +
+          `  大项目 ${result.project} · ${result.sessionCount} 个会话` +
+          (result.lastActive ? ` · 最近活跃 ${formatTime(result.lastActive)}` : "") +
+          `\n  当时在做 ${result.doing}\n  解决 ${result.solved}\n`,
+      );
+    }
+    return 0;
+  }
+
   if (command === "read") {
     const id = positional[0];
     if (!id) {
@@ -498,6 +635,8 @@ async function handleRequest(request) {
       return sync();
     case "search":
       return doSearch(params);
+    case "summary":
+      return doSummary(params);
     case "read": {
       const result = doRead(params);
       if (!result) {
@@ -563,20 +702,16 @@ function closeIndex() {
   indexDb = null;
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   try {
     if (argv[0] === "--serve" || argv[0] === "serve") {
-      serve()
-        .then((code) => process.exit(code))
-        .catch((error) => {
-          process.stderr.write(`sidecar 失败: ${error?.message || error}\n`);
-          process.exit(1);
-        });
-      return;
+      const code = await serve();
+      closeIndex();
+      process.exit(code);
     }
 
-    const code = runCli(argv);
+    const code = await runCli(argv);
     closeIndex();
     process.exit(code);
   } catch (error) {

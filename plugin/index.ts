@@ -19,6 +19,7 @@ import {
   type ReadOutput,
   type SearchOutput,
   type StatusOutput,
+  type SummaryOutput,
 } from "./rpc.js";
 
 const WORKER_PATH = fileURLToPath(new URL("./worker.mjs", import.meta.url));
@@ -325,6 +326,24 @@ export default Plugin.define({
         } catch (error) {
           if (error instanceof SidecarError && error.code === "not_found") {
             return context.error("not_found", error.message, { segmentId });
+          }
+          const message = messageOf(error);
+          return context.error("index_error", message, { message });
+        }
+      },
+
+      summary: async (input, context) => {
+        const value = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+        const sessionId = typeof value.sessionId === "string" ? value.sessionId.trim() : "";
+        if (!sessionId) {
+          return context.error("not_found", "sessionId 无效", { sessionId: "" });
+        }
+
+        try {
+          return await sidecar.call<SummaryOutput>("summary", { sessionId }, context.signal);
+        } catch (error) {
+          if (error instanceof SidecarError && error.code === "not_found") {
+            return context.error("not_found", error.message, { sessionId });
           }
           const message = messageOf(error);
           return context.error("index_error", message, { message });
