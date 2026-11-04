@@ -1,0 +1,22 @@
+# 依赖
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# 运行产物
+*.log
+tmp/
+out/
+
+# 编辑器 / 系统
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# 密钥与本地状态
+.env
+.env.*
+secrets/
+*.key
+*.pem

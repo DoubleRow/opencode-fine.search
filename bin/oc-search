@@ -1,0 +1,3 @@
+#!/bin/sh
+# oc-search 启动器：转发所有参数给同目录的 oc-search.mjs
+exec node "$(dirname "$(readlink -f "$0")")/oc-search.mjs" "$@"
