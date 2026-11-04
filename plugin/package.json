@@ -1,0 +1,19 @@
+{
+  "name": "opencode-fine.search",
+  "version": "0.1.0",
+  "description": "OpenCode 会话全文检索插件：旁路 FTS5 索引 + Desktop GUI 入口",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.ts",
+    "./rpc": "./rpc.ts",
+    "./gui-experimental": "./dist/gui-experimental.cjs",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build:gui": "vite build --config vite.config.ts"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "2.2.5"
+  }
+}

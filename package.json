@@ -6,8 +6,8 @@
   "type": "module",
   "packageManager": "pnpm@12.11.2",
   "scripts": {
-    "build:gui": "vite build",
-    "dev:gui": "vite build --watch",
+    "build:gui": "vite build --config plugin/vite.config.ts",
+    "dev:gui": "vite build --config plugin/vite.config.ts --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --test"
   },

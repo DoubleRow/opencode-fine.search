@@ -2,7 +2,7 @@
 
 把 OpenCode 本地会话库变成**可在 app 内检索的资产**：对 agent 记录过的所有文字做精确 / 模糊检索，点击结果直接定位到原文。
 
-> 现状：环境与依赖已就绪，插件实现待开始。CLI `oc-search` 已可用。
+> 现状：P0 插件骨架已完成（server RPC + sidecar 建库 + GUI 标题栏入口）；搜索弹窗与原文面板在 P1/P2。
 
 ## 为什么
 
@@ -86,6 +86,29 @@ tests/                 node --test
 | `--no-color` | 关闭高亮 |
 
 环境变量：`OPENCODE_DB` 覆盖数据库路径（默认 `~/.local/share/opencode/opencode.db`）。
+
+## 插件（Desktop）
+
+P0 插件由 server 部分（`plugin/index.ts`）与 GUI 部分（`plugin/gui.tsx` → `plugin/dist/gui-experimental.cjs`）组成。
+server 通过 RPC 暴露 `search` / `read` / `status`，实际建库与检索由 Node sidecar（`plugin/worker.mjs`）完成。
+
+```bash
+pnpm build:gui                                  # 生成 GUI bundle
+node plugin/worker.mjs status                   # 查看索引状态
+node plugin/worker.mjs sync                     # 建库/增量同步
+node plugin/worker.mjs search 连接池 --limit 3   # 命令行验证同一套检索
+```
+
+把插件目录加入全局 `opencode.json` 的 `plugins` 后才在 Desktop 中加载：
+
+```jsonc
+{
+  "plugins": ["/home/row/文档/opencode项目/opencode-fine.search/plugin"]
+}
+```
+
+之后在 **Settings > Extensions > Plugins** 可见；标题栏图标与 `mod+shift+g` 命令会先探测索引状态。
+临时覆盖：`OC_SEARCH_INDEX` 指定索引文件，`OC_SEARCH_NODE` 指定 node 绝对路径，`OC_SEARCH_VERBOSE=1` 输出同步进度。
 
 ## 开发
 
