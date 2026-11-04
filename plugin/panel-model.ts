@@ -3,7 +3,7 @@
  * 不依赖 DOM / Solid，便于测试。
  */
 
-import type { SearchOutputItem, SummarySource } from "./rpc";
+import type { SearchOutputItem, SummarySource } from "./rpc.ts";
 
 export interface PendingSelection {
   query: string;
