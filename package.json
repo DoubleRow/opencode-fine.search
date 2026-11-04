@@ -1,0 +1,28 @@
+{
+  "name": "opencode-fine.search",
+  "version": "0.0.0",
+  "description": "OpenCode 会话全文检索：GUI 插件 + 精确索引 + 语义 lane",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "build:gui": "vite build",
+    "dev:gui": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@opencode/client": "2.2.5",
+    "@opencode/plugin": "2.2.5",
+    "@opencode/theme": "2.2.5",
+    "@opentui/core": "0.8.2",
+    "@opentui/solid": "0.8.2",
+    "@types/node": "26.6.6",
+    "effect": "4.0.6",
+    "electron": "45.2.2",
+    "solid-js": "1.9.18",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vite-plugin-solid": "2.11.15"
+  }
+}

@@ -1,12 +1,12 @@
 # 依赖
 node_modules/
 package-lock.json
-pnpm-lock.yaml
 
 # 运行产物
 *.log
 tmp/
 out/
+dist/
 
 # 编辑器 / 系统
 .DS_Store
