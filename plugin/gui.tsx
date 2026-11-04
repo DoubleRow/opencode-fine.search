@@ -5,7 +5,7 @@
  * 搜索弹窗与原文面板在 P1/P2 实现。
  */
 
-import { Command, Plugin, TitlebarItem } from "@opencode/plugin/gui";
+import { Command, Plugin, Slot } from "@opencode/plugin/gui";
 
 import { SearchRpc, type StatusOutput } from "./rpc";
 
@@ -46,13 +46,26 @@ export default Plugin.define({
       }
     }
 
-    ctx.add(TitlebarItem, (): TitlebarItem => ({
-      id: "search",
-      label: "全文检索",
-      title: "会话全文检索",
-      icon: "magnifying-glass",
-      run: () => void probeStatus(),
-    }));
+    // TitlebarItem 在 Linux 会落到左下角 tabs footer（更新提示旁边），
+    // 不适合作为搜索入口；改用会话标题行右侧的图标按钮。
+    ctx.add(Slot, {
+      at: "session.header",
+      order: 20,
+      render: () => (
+        <ctx.ui.Tooltip
+          value="会话全文检索"
+          keys={ctx.keybinds.keybind(`${ctx.id}.search`)}
+        >
+          <ctx.ui.IconButton
+            icon="magnifying-glass"
+            label="会话全文检索"
+            size="small"
+            variant="ghost"
+            onClick={() => void probeStatus()}
+          />
+        </ctx.ui.Tooltip>
+      ),
+    });
 
     ctx.add(Command, (): Command => ({
       id: "search",

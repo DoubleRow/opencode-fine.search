@@ -107,7 +107,7 @@ node plugin/worker.mjs search 连接池 --limit 3   # 命令行验证同一套�
 }
 ```
 
-之后在 **Settings > Extensions > Plugins** 可见；标题栏图标与 `mod+shift+g` 命令会先探测索引状态。
+之后在 **Settings > Extensions > Plugins** 可见；会话标题行右侧的搜索图标与 `mod+shift+g` 命令会先探测索引状态。
 临时覆盖：`OC_SEARCH_INDEX` 指定索引文件，`OC_SEARCH_NODE` 指定 node 绝对路径，`OC_SEARCH_VERBOSE=1` 输出同步进度。
 
 ## 开发
