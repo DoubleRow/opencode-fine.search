@@ -1,45 +1,85 @@
-# OPskill — 项目规范
+# opencode-fine.search — 项目规范
 
 > 优先级：本文件 > `~/.config/opencode/AGENTS.md`（全局）> 模型默认行为。
 
 ## 目标
 
-把 OpenCode 本地数据（会话库、配置、插件状态）做成**可检索、可验证**的本地工具集。
-第一个产出是 `bin/oc-search`：只读检索 `~/.local/share/opencode/opencode.db`。
+把 OpenCode 本地会话库变成**可在 app 内检索的资产**：
+对 agent 记录过的所有文字做精确/模糊检索，点击结果直接定位到原文。
+
+产出形态：
+
+1. **GUI 插件**（OpenCode Desktop，优先）——标题栏入口 + 搜索弹窗 + 原文面板。
+2. **TUI 插件**（后续）——复用同一 RPC，只换表现层。
+3. **CLI `bin/oc-search`**（保留）——同一套检索核心，便于脚本与验收。
 
 ## 红线
 
-1. **数据库只读**：一律 `new DatabaseSync(path, { readOnly: true })`。禁止写库、建索引、ALTER、VACUUM、迁移。
-   备份 `opencode.db` 不算本项目的职责；如确需，先按全局 §1.1 走知情决策。
-2. **不联网**：工具不得向任何外部服务发送会话内容。要做语义检索，用本机已有的
-   `127.0.0.1:11435`（llama-server / Qwen3-Embedding 0.6B）。
-3. **不新增依赖**：优先 Node 内置模块（`node:sqlite`、`node:fs`）。确需第三方包先问。
-4. **不改全局配置**：`~/.config/opencode/opencode.json`、`opencode-mem.jsonc` 只读参考，不在本项目里改。
+1. **会话库只读**：一律 `new DatabaseSync(path, { readOnly: true })`。禁止写 `opencode.db`、ALTER、VACUUM、迁移。
+   本项目的索引写在独立旁路库，见「结构」。
+2. **不联网**：不向外部服务发送会话内容。语义检索只允许访问本机
+   `127.0.0.1:4747`（opencode-mem），其 token 只由 server 进程读取，禁止出现在日志、返回值、前端。
+3. **索引期与查询期零 LLM 调用**：抽取、分词、排序全部确定性；语义 lane 只调用本机向量接口。
+4. **不改全局配置**：`~/.config/opencode/opencode.json`、`opencode-mem.jsonc` 只读参考。
+   需要登记插件时，先备份并单独征求同意。
+5. **运行时不新增依赖**：索引/检索只用 Node 内置模块（`node:sqlite`、`node:fs`、`node:child_process`）。
+   允许的依赖仅限 `devDependencies`（打包与类型）。
+
+## 索引范围（已定）
+
+- 覆盖**全部历史会话**（含子会话、挂起会话）。
+- 入库：`user.text`、`assistant.text`、`reasoning`（默认隐藏）、`tool.input`、`tool.output`、
+  `system`、`synthetic`、`compaction.summary`。
+- **排除**：`data:` URI（本机实测 324 MB）、`write.content`、`edit.oldString/newString`、
+  `snapshot`、diff、模型元数据。
 
 ## 结构
 
 ```
-bin/oc-search       sh 启动器
-bin/oc-search.mjs   实现（ESM，node:sqlite）
+bin/oc-search          CLI 启动器（sh）
+bin/oc-search.mjs      CLI 实现
+lib/extract.mjs        消息 → 片段（规则集中在此）
+lib/index-db.mjs       FTS5 schema / 建库 / 查询
+lib/sync.mjs           会话指纹增量同步
+lib/query.mjs          分级检索 + 排序 + 片段
+lib/protocol.mjs       stdio JSON-RPC
+plugin/                OpenCode 插件（server + GUI + 后续 TUI）
+plugin/worker.mjs      Node sidecar（node:sqlite）
+tests/                 node --test
 ```
 
-新增工具沿用同样布局：`bin/<name>` 启动器 + `bin/<name>.mjs` 实现，命令名短、参数自解释。
+旁路索引：`~/.local/share/opencode-oc-search/index.db`（权限 600，可删可重建）。
+
+## 检索约定
+
+- L0 精确：FTS5 trigram（≥3 字符）；1–2 字符走 `LIKE` 兜底。
+- L1 排序：BM25 + 段/会话 RRF(k=60)。
+- L2 语义：opencode-mem `/api/search`，只读、可降级，结果标注 lane。
+- 索引缺失/损坏必须显式报状态，**禁止返回「看似成功的空结果」**。
 
 ## 验收
 
-改动后必须跑真实查询并贴输出，不能只说"应该没问题"：
+改动后必须贴真实输出，不能口头断言：
 
 ```bash
-./bin/oc-search 向量化 --limit 3     # 应命中历史会话
-./bin/oc-search --list | head -5     # 应列出 40+ 会话
-./bin/oc-search 不存在的词xyz        # 应输出「没有命中」且退出码 1
+pnpm typecheck
+pnpm test
+./bin/oc-search 连接池 --limit 3      # 应命中
+./bin/oc-search 向量                   # 2 字查询应走 LIKE 并命中
+./bin/oc-search 不存在的词xyz          # 应输出「没有命中」且退出码 1
 ```
 
-Python 型工具才用 `uv run ruff check .`；当前项目无 Python。
+GUI 验收：`⌘⇧G` → 输入 → Enter → 会话打开 + 面板高亮命中原文。
+
+## Git
+
+- 每个任务独立分支，不直接改 `main`。
+- commit：`type(scope): 中文描述`，`type ∈ feat/fix/docs/test/chore`。
+- **`git push` 仅在人工明示后执行**，不自动推送。
 
 ## 代码约定
 
-- 异步/异常不吞：数据库打开失败要给出路径和原因。
+- 异步/异常不吞：失败要带路径与原因。
 - 参数解析拒绝未知选项，返回码 2。
 - 输出默认给人看，`--json` 给机器看。
 - 中文输出，字段名英文。

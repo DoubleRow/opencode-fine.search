@@ -1,0 +1,15 @@
+minimumReleaseAgeExclude:
+  - '@opentui/core-darwin-arm64@0.8.2'
+  - '@opentui/core-darwin-x64@0.8.2'
+  - '@opentui/core-linux-arm64-musl@0.8.2'
+  - '@opentui/core-linux-arm64@0.8.2'
+  - '@opentui/core-linux-x64-musl@0.8.2'
+  - '@opentui/core-linux-x64@0.8.2'
+  - '@opentui/core-win32-arm64@0.8.2'
+  - '@opentui/core-win32-x64@0.8.2'
+  - '@opentui/core@0.8.2'
+  - '@opentui/solid@0.8.2'
+  - electron@45.2.2
+
+allowBuilds:
+  esbuild: true
