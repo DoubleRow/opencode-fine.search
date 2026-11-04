@@ -119,4 +119,4 @@ pnpm dev:gui          # 监听重建
 
 ## 许可
 
-待定。
+[MIT](./LICENSE)
