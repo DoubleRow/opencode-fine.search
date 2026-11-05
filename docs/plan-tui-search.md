@@ -45,47 +45,74 @@
 打开会话通路（`openPlan`，有单测）：`tabs.enabled()` 为真先 `tabs.focus(sessionId)`，
 返回 false 或抛错则回退 `router.navigate({ type: "session", sessionID })`；两者都失败写入错误行。
 
-## 4. 常量（与 GUI 同源，改动需同步）
+## 4. 常量
 
-`DEBOUNCE_MS=120`、`SEARCH_LIMIT=100`、`PREVIEW_LINES=20`、`PREVIEW_WIDTH=70`、
-`STREAM_PAGE=40`（服务端上限 80）、`LIST_WINDOW=14`、`PAGE_HITS=10`、`REPLAY_WINDOW=24`。
+模型层（与 GUI 同源）：`DEBOUNCE_MS=120`、`SEARCH_LIMIT=100`、`PREVIEW_LINES=20`、
+`PREVIEW_WIDTH=70`、`STREAM_PAGE=40`（服务端上限 80）、`PAGE_HITS=10`。
 
-**`REPLAY_WINDOW` 是右栏可见行数**：本机无法测出 `xlarge` 对话框的真实高度，
-若人工验收发现裁切或大片空白，只需调这一个常量（纯逻辑与测试不受影响）。
+TUI 层（只影响终端观感，改这些不动检索逻辑）：
+
+| 常量 | 值 | 说明 |
+| --- | --- | --- |
+| `DIALOG_WIDTH` | 112 | `xlarge` 实测 116 列，留 4 列内边距 |
+| `LEFT_WIDTH` | 42 | 左栏（结果列表） |
+| `RIGHT_WIDTH` | 68 | 右栏（预览 / 回放） |
+| `TEXT_WIDTH` | 64 | 右栏正文实际换行宽度 |
+| `LIST_WINDOW` | 10 | 左栏可见行数 |
+| `TUI_PREVIEW_LINES` | 8 | 预览实际渲染行数（`PREVIEW_LINES=20` 保留给模型口径） |
+| `REPLAY_WINDOW` | 24 | 回放可见行数 |
+
+45 行终端下这些值刚好放下输入框、两栏与底栏按键提示；终端更矮时优先减 `TUI_PREVIEW_LINES`。
 
 ## 5. 踩过的坑（勿回退）
 
-1. **`<span fg>` 不过类型**：`@opentui/solid@0.8.2` 的 `SpanProps` 无 `fg`。
-   着色统一走 `StyledText` + `@opentui/core` 的 `fg()`，写成 `<text content={...} />`。
-2. **切换命中必须复位 `busy`**：在途分页请求会被 `tokenLane` 丢弃，`finally` 不再执行，
+1. **富文本别用 `StyledText` + `<text content>`**：类型能过，运行时渲染成 `[object Object]`
+   （本机 opencode 2.2.5 内嵌的 OpenTUI 与本地 0.8.2 类型不同源）。
+   正确做法是 `<text>` 里放 `<span>`；`fg` 未进 `SpanProps` 类型，用展开绕过本地类型。
+2. **`<For>` 行内不能存布尔快照**：`const isSelected = ... sel()` 只会算一次，选中态不刷新。
+   必须在 JSX 属性/子节点里内联读信号（实测：方向键改了 `sel()`，`❯` 不跟着走）。
+3. **百分比宽度不生效**：`width="40%"` / `width="100%"` 都被忽略（内容缩成 ~60 列）。
+   用数值宽度 + `DIALOG_WIDTH/LEFT_WIDTH/RIGHT_WIDTH`。
+4. **`fitText` 按字符数截断，CJK 会溢出**：40 个汉字的显示宽度是 80 格，行会二次换行。
+   列表行必须用 `clipDisplay`（按 `displayWidth` 计，CJK 记 2 格）。
+5. **切换命中必须复位 `busy`**：在途分页请求会被 `tokenLane` 丢弃，`finally` 不再执行，
    `streamBusy` 必须手动清零，否则永久卡「加载中」。
-3. **`before` 分页按页宽回退**：`nextOffset(offset, STREAM_PAGE, "before")`；
+6. **`before` 分页按页宽回退**：`nextOffset(offset, STREAM_PAGE, "before")`；
    `after` 按已载条数推进：`nextOffset(offset, items.length, "after")`（与 GUI `stream-model` 一致）。
-4. **加载更早后视口补偿**：`firstLineIndexFor(replayRowsMemo(), topSegmentId)` 定位原顶部片段，
+7. **加载更早后视口补偿**：`firstLineIndexFor(replayRowsMemo(), topSegmentId)` 定位原顶部片段，
    再 `setReplayScroll`，否则整屏跳动。
-5. **导入后缀**：`tui.tsx` 用 `./xxx.js`（Bun 加载器约定，同 `index.ts`）；
+8. **导入后缀**：`tui.tsx` 用 `./xxx.js`（Bun 加载器约定，同 `index.ts`）；
    `tui-model.ts` 的内部跨文件导入用 `./xxx.ts`，否则 `node --test` 的类型剥离链断掉。
-6. **索引缺失不得静默**：`status.ready` 为 false 时列表区显式提示，而不是返回空结果。
+9. **索引缺失不得静默**：`status.ready` 为 false 时列表区显式提示，而不是返回空结果。
+10. **共享后台服务会缓存插件特性**：长时间运行的服务里 `/api/plugin` 报
+    `features={server,rpc,gui}`（缺 `tui`），于是 TUI 根本不加载本插件，
+    `/fs` 与会话内按键全部消失；同样的包在 `opencode --standalone`（私有服务）下
+    `features` 含 `tui`，插件正常加载。改完 `exports["./tui"]` 后必须让共享服务重新扫描
+    （重启服务或重连），只重启 TUI 进程不够。
 
 ## 6. 自动化验证（真实输出见提交说明）
 
 ```
 pnpm typecheck   → tsc --noEmit，exit 0
 pnpm lint        → oxlint plugin lib tests bin，exit 0（无输出即无告警）
-pnpm test        → tests 79 / pass 79 / fail 0
+pnpm test        → tests 80 / pass 80 / fail 0
 ```
 
-`pnpm build:gui` 亦需通过（GUI 不回归）。TUI 侧无头不可跑，故 §7 交人工。
+`pnpm build:gui` 亦需通过（GUI 不回归）。
 
-## 7. 人工验收清单
+界面部分用 tmux 分配伪终端 + `opencode --standalone` 实跑过（160×45）：
+`/fs` 出现并打开对话框、检索出结果、`↓` 切换命中且右侧预览跟随、`Tab` 进回放、
+`PgDn` 加载更后、`Ctrl+T` 展开思考、`Enter` 打开会话、`Esc` 只关对话框，均已观察通过。
 
-1. 裸跑 `opencode` → 按 `<leader>f`（或输 `/finesearch`、`/fs`，或命令面板选「全文检索」）→ 弹出对话框，状态行显示「索引就绪 · 44 会话 / …」。
-2. 输入跨会话关键词（如 `连接池`）→ 左侧按会话分组列出命中，右侧同步预览摘要 + 前 20 行原文，命中词着色。
-3. 输入 2 字词（如 `向量`）→ 仍命中（LIKE 兜底）；输入 `不存在的词xyz` → 显示「没有命中」。
+## 7. 人工验收清单（真终端复核）
+
+1. 裸跑 `opencode` → 按 `<leader>f`（默认 `ctrl+x` 再 `f`；或输 `/finesearch`、`/fs`，或命令面板选「全文检索」）→ 弹出对话框，状态行显示「索引就绪 · N 会话 / …」。
+2. 输入跨会话关键词（如 `连接池`）→ 左侧按会话分组列出命中（每行单行截断、选中行带 `❯`），右侧同步预览摘要 + 前 8 行原文，命中词着色。
+3. 输入 2 字词（如 `向量`）→ 仍命中（LIKE 兜底）；输入随机串（如 `zzqqxvbnm1234`）→ 显示「没有命中」。
 4. `↑↓` 逐条移动、`PgUp/PgDn` 十条一跳，列表窗口随之滚动不裁切。
 5. `Ctrl+O` 循环筛选，底栏括号内显示当前档位。
 6. `Tab` 进回放 → 顶栏显示「只读回放 · 会话标题 · 已载 x–y / 共 N」；`PgDn` 加载更后、`PgUp` 加载更早，视口不跳动。
 7. `Ctrl+T` 思考段在「已收起提示」与全文之间切换；`Ctrl+J` 命中条换成全文，提示行消失。
 8. `Enter` 打开命中所在会话（开标签页模式时聚焦标签，否则整页跳转），对话框关闭。
-9. `Esc` 只关对话框，再次 `<leader>f` 打开是干净状态。
+9. `Esc` 只关对话框，再次打开是干净状态。
 10. 删除旁路索引库后重开 → 状态行与列表区显式报「索引未就绪」，不得显示为「没有命中」。

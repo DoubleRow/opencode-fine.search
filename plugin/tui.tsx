@@ -13,7 +13,6 @@
 
 import { Plugin } from "@opencode/plugin/tui";
 import type { Context } from "@opencode/plugin/tui/context";
-import { StyledText, fg as styledFg } from "@opentui/core";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import {
@@ -30,17 +29,19 @@ import { kindLabel, termsOf } from "./panel-model.js";
 import { mergeItems, nextOffset } from "./stream-model.js";
 import {
   DEBOUNCE_MS,
+  DIALOG_WIDTH,
+  LEFT_WIDTH,
   LIST_WINDOW,
   PAGE_HITS,
-  PREVIEW_LINES,
-  PREVIEW_WIDTH,
   REPLAY_WINDOW,
+  RIGHT_WIDTH,
   SEARCH_LIMIT,
   STREAM_PAGE,
   buildRows,
   clipLines,
   errorText,
   firstLineIndexFor,
+  clipDisplay,
   flatten,
   highlightParts,
   moveScroll,
@@ -52,6 +53,8 @@ import {
   scrollStart,
   sourceLabel,
   stepHits,
+  TEXT_WIDTH,
+  TUI_PREVIEW_LINES,
   timeLabel,
   tokenLane,
   type ReplayLine,
@@ -270,7 +273,7 @@ function SearchDialog(props: SearchDialogProps) {
       showReasoning: showReasoning(),
       anchorExpanded: anchorExpanded(),
       anchorFullText: anchorFullText(),
-      width: PREVIEW_WIDTH,
+      width: TEXT_WIDTH,
     }),
   );
 
@@ -311,7 +314,7 @@ function SearchDialog(props: SearchDialogProps) {
         showReasoning: showReasoning(),
         anchorExpanded: false,
         anchorFullText: null,
-        width: PREVIEW_WIDTH,
+        width: TEXT_WIDTH,
       });
       const at = firstLineIndexFor(lines, hit.segmentId);
       setReplayScroll(Math.max(0, at - 4));
@@ -425,12 +428,12 @@ function SearchDialog(props: SearchDialogProps) {
   // PgUp/PgDn 与 ↑↓ 的语义按「预览 / 回放」两种视图分流。
   context.keymap.layer(() => ({
     mode: "global",
-    priority: 50,
+    priority: 1000,
     commands: [
       {
         id: "fine.search.up",
         title: "全文检索：上一条/上滚",
-        bind: "up",
+        bind: "up,ctrl+p",
         run: () => {
           if (view() === "replay") {
             setReplayScroll((s) => moveScroll(s, -1, replayRowsMemo().length));
@@ -442,7 +445,7 @@ function SearchDialog(props: SearchDialogProps) {
       {
         id: "fine.search.down",
         title: "全文检索：下一条/下滚",
-        bind: "down",
+        bind: "down,ctrl+n",
         run: () => {
           if (view() === "replay") {
             setReplayScroll((s) => moveScroll(s, 1, replayRowsMemo().length));
@@ -540,31 +543,43 @@ function SearchDialog(props: SearchDialogProps) {
   const preview = createMemo(() => {
     const seg = segment();
     if (!seg) return { lines: [] as string[], hidden: 0 };
-    return previewView(seg.text, PREVIEW_WIDTH, PREVIEW_LINES);
+    return previewView(seg.text, TEXT_WIDTH, TUI_PREVIEW_LINES);
   });
 
   function renderHitLine(row: TuiRow, visibleIndex: number) {
-    const isSelected = row.type === "hit" && start() + visibleIndex === sel();
-    const color =
-      row.type === "header"
-        ? theme.text.faint
-        : isSelected
-          ? theme.text.base
-          : theme.text.muted;
+    // 选中态必须内联读信号：Solid 的 For 会复用行，函数体里的布尔快照不会随 sel() 更新。
     return (
-      <text fg={color}>
-        {row.type === "hit" && isSelected ? "❯ " : "  "}
-        {row.text}
+      <text
+        fg={
+          row.type === "header"
+            ? theme.text.faint
+            : row.type === "hit" && start() + visibleIndex === sel()
+              ? theme.text.base
+              : theme.text.muted
+        }
+      >
+        {row.type === "hit" && start() + visibleIndex === sel() ? "❯ " : "  "}
+        {clipDisplay(row.text, LEFT_WIDTH - 2)}
       </text>
     );
   }
 
   function renderPreviewLine(line: string) {
-    // span 的 fg 属性在 @opentui/solid 0.8.2 类型里未暴露，改走 core 的 StyledText 通道。
-    const styled = new StyledText(
-      highlightParts(line, terms()).map((part) => styledFg(part.hit ? accent : base)(part.text)),
+    const parts = highlightParts(line, terms());
+    if (parts.length <= 1) return <text fg={base}>{line}</text>;
+    // span 的 fg 未在 @opentui/solid 0.8.2 的类型里暴露（SpanProps.style 为空），
+    // 运行时 core 认这个属性，故用展开绕过本地类型。
+    return (
+      <text>
+        <For each={parts}>
+          {(part) => (
+            <span {...({ fg: part.hit ? accent : base } as Record<string, unknown>)}>
+              {part.text}
+            </span>
+          )}
+        </For>
+      </text>
     );
-    return <text content={styled} />;
   }
 
   function renderReplayLine(line: ReplayLine) {
@@ -593,7 +608,7 @@ function SearchDialog(props: SearchDialogProps) {
   });
 
   return (
-    <box flexDirection="column" gap={1}>
+    <box flexDirection="column" gap={0} width={DIALOG_WIDTH} backgroundColor={theme.background.base}>
       <input
         focused
         placeholder="搜索全部会话（输入即查；≥3 字走 trigram，1–2 字走 LIKE）"
@@ -607,7 +622,7 @@ function SearchDialog(props: SearchDialogProps) {
         <text fg={theme.text.muted}>{infoLine()}</text>
       </Show>
       <box flexDirection="row" gap={2}>
-        <box width="40%" flexDirection="column" minHeight={LIST_WINDOW + 2}>
+        <box width={LEFT_WIDTH} flexDirection="column" minHeight={LIST_WINDOW + 2}>
           <Show when={listState() === "not-ready"}>
             <text fg={theme.text.faint}>索引未就绪，无法检索。运行 node plugin/worker.mjs sync 重建。</text>
           </Show>
@@ -627,7 +642,7 @@ function SearchDialog(props: SearchDialogProps) {
             <For each={windowed()}>{(row, i) => renderHitLine(row, i())}</For>
           </Show>
         </box>
-        <box width="60%" flexDirection="column">
+        <box width={RIGHT_WIDTH} flexDirection="column">
           <Show when={view() === "preview"}>
             <Show when={previewState() === "idle"}>
               <text fg={theme.text.faint}>↑↓ 选择命中查看预览。</text>
@@ -644,17 +659,17 @@ function SearchDialog(props: SearchDialogProps) {
                 {summary() ? `${summary()!.project}` : projectName(segment()?.directory ?? "")}
               </text>
               <Show when={summary()}>
-                <For each={clipLines(summary()!.doing, PREVIEW_WIDTH, 3)}>
+                <For each={clipLines(summary()!.doing, TEXT_WIDTH, 1)}>
                   {(line) => <text fg={theme.text.muted}>当时在做 {line}</text>}
                 </For>
-                <For each={clipLines(summary()!.solved, PREVIEW_WIDTH, 3)}>
+                <For each={clipLines(summary()!.solved, TEXT_WIDTH, 1)}>
                   {(line) => <text fg={theme.text.muted}>解决 {line}</text>}
                 </For>
                 <text fg={theme.text.faint}>
                   来源 {sourceLabel(summary()!.source)} · 共 {summary()!.sessionCount} 会话
                 </text>
               </Show>
-              <text fg={theme.text.faint}>原文（前 {PREVIEW_LINES} 行）：</text>
+              <text fg={theme.text.faint}>原文（前 {TUI_PREVIEW_LINES} 行）：</text>
               <For each={preview().lines}>{(line) => renderPreviewLine(line)}</For>
             </Show>
           </Show>

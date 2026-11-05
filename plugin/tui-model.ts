@@ -55,9 +55,17 @@ export function errorText(error: unknown): string {
 
 /** 单行列表的默认可视宽度（对话框左栏），超出截断加省略号。 */
 export const LINE_WIDTH = 64;
+/** xlarge 对话框宽度（opencode v2.2.5 源码：xlarge=116）+ 本插件左右两栏的内宽。 */
+export const DIALOG_WIDTH = 112;
+export const LEFT_WIDTH = 42;
+export const RIGHT_WIDTH = 68;
+/** 右栏正文可用宽度：留出两列给缩进与续行标记。 */
+export const TEXT_WIDTH = RIGHT_WIDTH - 4;
+/** TUI 预览列实际渲染的行数：xlarge 弹窗高度有限，留出输入框与底栏。 */
+export const TUI_PREVIEW_LINES = 8;
 
 /** 列表区域可滚动的行数。 */
-export const LIST_WINDOW = 14;
+export const LIST_WINDOW = 10;
 
 /** PgUp/PgDn 一次跳过的命中条数。 */
 export const PAGE_HITS = 10;
@@ -73,6 +81,22 @@ export function fitText(value: string, width = LINE_WIDTH): string {
   const text = flatten(value);
   if (text.length <= limit) return text;
   return `${text.slice(0, limit - 1)}…`;
+}
+
+/** 按显示宽度（CJK 记 2 格）截断，给固定列宽的终端布局用；fitText 按字符数会溢出。 */
+export function clipDisplay(value: string, width: number): string {
+  const limit = Math.max(1, Math.trunc(width) || 1);
+  const text = flatten(value);
+  if (displayWidth(text) <= limit) return text;
+  let out = "";
+  let used = 0;
+  for (const ch of text) {
+    const w = displayWidth(ch);
+    if (used + w > limit - 1) break;
+    out += ch;
+    used += w;
+  }
+  return `${out}…`;
 }
 
 const DAY_MS = 86_400_000;

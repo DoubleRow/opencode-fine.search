@@ -9,6 +9,7 @@ import {
   SEARCH_LIMIT,
   STREAM_PAGE,
   buildRows,
+  clipDisplay,
   clipLines,
   dayLabel,
   displayWidth,
@@ -144,7 +145,7 @@ test("scrollStart 保证选中可见且尽量少动", () => {
   assert.equal(scrollStart(0, 3, count, visible), 0);
   assert.equal(scrollStart(0, 20, count, visible), 20 - visible + 1);
   assert.equal(scrollStart(10, 5, count, visible), 4); // 向上露一行上下文
-  assert.equal(scrollStart(30, 39, count, visible), 26); // prev 越界先收敛，选中已在窗内不动
+  assert.equal(scrollStart(30, 39, count, visible), count - visible); // prev 越界先收敛，选中已在窗内不动
   assert.equal(scrollStart(999, 0, count, visible), 0); // prev 越界自动收敛
   assert.equal(scrollStart(0, -1, count, visible), 0);
   assert.equal(scrollStart(0, 1, 0, visible), 0);
@@ -302,4 +303,11 @@ test("firstLineIndexFor/moveScroll 支撑回放视口补偿", () => {
 test("openPlan 标签页优先，未启用直接跳路由", () => {
   assert.deepEqual(openPlan(true), ["tabs", "router"]);
   assert.deepEqual(openPlan(false), ["router"]);
+});
+
+test("clipDisplay 按显示宽度截断（CJK 记 2 格）", () => {
+  assert.equal(clipDisplay("abc", 10), "abc");
+  assert.equal(clipDisplay("中文中文中文", 5), "中文…");
+  assert.equal(displayWidth(clipDisplay("中文中文中文", 5)), 5);
+  assert.equal(clipDisplay("超长的一段中文标题需要被截断", 9).endsWith("…"), true);
 });
