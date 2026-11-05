@@ -247,3 +247,28 @@ P1 要做的第一件事：
 - 工作区有一个**未跟踪**文件 `docs/feasibility-search-ui.md`（调研），不要删除；
 - 构建用 `pnpm build:gui`，桌面端会自动重载；
 - 不自动 push。
+
+## 12. P1 实施记录（2026-11-05）
+
+代码落点与第 4 节基本一致，差异与结果如下：
+
+| 文件 | 作用 |
+| --- | --- |
+| `plugin/overlay.tsx` | 浮层本体：搜索框、类型筛选、结果列表、预览区、键盘 |
+| `plugin/overlay-model.ts` | 纯逻辑：类型筛选、索引夹取、↑↓ 循环移动 |
+| `plugin/header-entry.tsx` | 标题行入口（原 `spike-p0.tsx` 改名），`order:-1` |
+| `plugin/detail-parts.tsx` | 面板与浮层共用的三段上下文 + 20 行折叠原文 + 高亮 |
+| `plugin/gui.tsx` | 注册 `window.bottom` / `session.header` 两个 slot、命令与快捷键 |
+
+实现细节：
+
+- 显隐状态留在 `setup` 内（`overlayOpen`），通过 props 传给两个 slot，不用模块级全局；
+- 搜索 100ms 防抖，`limit: 100`、`includeReasoning: true`、`includeTools: true`，类型筛选在前端做；
+- 预览 120ms 防抖，`read` 与 `summary` 并发，摘要按 session 缓存（上限 80）；
+- `Esc` / `↑` / `↓` 在 `document` 捕获阶段 `preventDefault + stopImmediatePropagation`，
+  实测可拦住 Kobalte 的同层 Escape 监听；Enter 由输入框处理；
+- 打开会话时 server 解析顺序：已开标签页 → builtin → local → 当前会话；
+- 原 `palette-search.ts` 的 `session.list` 补丁默认关闭（`USE_NATIVE_SEARCH_PATCH = false`），
+  文件与详情面板自动打开保留，改回 `true` 即可回退。
+
+冷启动第一次搜索约 1.4s（sidecar 打开索引 + 增量同步），预热后 8–90ms。
