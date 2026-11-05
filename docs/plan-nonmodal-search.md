@@ -264,7 +264,10 @@ P1 要做的第一件事：
 
 - 显隐状态留在 `setup` 内（`overlayOpen`），通过 props 传给两个 slot，不用模块级全局；
 - 搜索 100ms 防抖，`limit: 100`、`includeReasoning: true`、`includeTools: true`，类型筛选在前端做；
-- 预览 120ms 防抖，`read` 与 `summary` 并发，摘要按 session 缓存（上限 80）；
+- **预览在右侧详情栏，不在浮层内**（2026-11-05 调整）：浮层只留搜索框与结果列表，
+  选中项 120ms 防抖后经 `selectionFor` 写入当前会话的 selection，并在面板关闭时
+  `layout.open`；面板内容与自身会话解耦，摘要按命中项 sessionId 取；
+- 首页没有当前会话时无法挂侧栏，此时浮层只显示结果列表；
 - `Esc` / `↑` / `↓` 在 `document` 捕获阶段 `preventDefault + stopImmediatePropagation`，
   实测可拦住 Kobalte 的同层 Escape 监听；Enter 由输入框处理；
 - 打开会话时 server 解析顺序：已开标签页 → builtin → local → 当前会话；
