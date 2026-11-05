@@ -230,6 +230,8 @@ export interface SearchOverlayProps {
   open: () => boolean;
   onClose: () => void;
   onOpen: (item: SearchOutputItem) => void;
+  /** 选中项变化：驱动右侧详情栏。 */
+  onSelect: (item: SearchOutputItem, query: string) => void;
 }
 
 function baseName(directory: string): string {
@@ -256,6 +258,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
   const summaryCache = new Map<string, SummaryOutput>();
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
+  let selectTimer: ReturnType<typeof setTimeout> | undefined;
   let searchToken = 0;
   let previewToken = 0;
   let inputEl: HTMLInputElement | undefined;
@@ -426,6 +429,22 @@ export function SearchOverlay(props: SearchOverlayProps) {
     ),
   );
 
+  // 选中项 / 查询词变化 → 120ms 后把命中项交给右侧详情栏。
+  createEffect(
+    on(
+      () => `${current()?.segmentId ?? ""}|${query().trim()}`,
+      () => {
+        clearTimeout(selectTimer);
+        const item = current();
+        if (!item) return;
+        selectTimer = setTimeout(
+          () => props.onSelect(item, query().trim()),
+          PREVIEW_DEBOUNCE_MS,
+        );
+      },
+    ),
+  );
+
   // 打开时聚焦输入框；已有查询词全选，直接输入即可替换。
   createEffect(
     on(
@@ -466,6 +485,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
   onCleanup(() => {
     clearTimeout(searchTimer);
     clearTimeout(previewTimer);
+    clearTimeout(selectTimer);
   });
 
   const emptyText = createMemo(() => {

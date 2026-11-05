@@ -38,6 +38,15 @@ export function pendingFor(
   return entry;
 }
 
+/** 浮层选中一条结果 → 详情面板的 selection（单条命中，无片段导航）。 */
+export function selectionFor(
+  query: string,
+  hit: SearchOutputItem,
+  at = Date.now(),
+): DetailSelection {
+  return { query, hits: [hit], at, index: 0 };
+}
+
 /** 查询词拆成高亮词表；空查询返回空数组。 */
 export function termsOf(query: string | undefined): string[] {
   return String(query ?? "")

@@ -7,6 +7,7 @@ import {
   groupHitsBySession,
   kindLabel,
   pendingFor,
+  selectionFor,
   sourceLabel,
 } from "../plugin/panel-model.ts";
 
@@ -47,6 +48,15 @@ test("自动打开窗口只认 5 秒内的 pending", () => {
   assert.equal(pendingFor(pending, "ses_a", 6001), undefined);
   assert.equal(pendingFor(pending, "ses_b", 1000), undefined);
   assert.equal(pendingFor(new Map(), "ses_a", 1000), undefined);
+});
+
+test("浮层单条命中生成详情 selection", () => {
+  const item = hit("ses_a", 7);
+  const selection = selectionFor("连接池", item, 1000);
+  assert.equal(selection.query, "连接池");
+  assert.equal(selection.at, 1000);
+  assert.equal(selection.index, 0);
+  assert.deepEqual(selection.hits.map((entry) => entry.segmentId), [7]);
 });
 
 test("命中按会话分组并保持顺序", () => {

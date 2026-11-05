@@ -24,7 +24,12 @@ import {
   termsOf,
   type DetailSelection,
 } from "./panel-model";
-import { SearchRpc, type ReadOutput, type SummaryOutput } from "./rpc";
+import {
+  SearchRpc,
+  type ReadOutput,
+  type SearchOutputItem,
+  type SummaryOutput,
+} from "./rpc";
 
 export const DETAIL_KEY_ID = "detail";
 
@@ -107,11 +112,14 @@ export const DETAIL_CSS = `
 
 interface DetailPanelProps {
   ctx: Context;
+  /** 面板所在的会话（只决定 tab 属于哪个 strip），内容由 selection 决定。 */
   session: MountedSession;
   tab: PanelTab;
   panelKey: string;
   selection: () => DetailSelection | undefined;
   onIndex: (index: number) => void;
+  /** 打开命中项所属的真实会话。 */
+  onOpen: (item: SearchOutputItem) => void;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -146,20 +154,29 @@ export function DetailPanel(props: DetailPanelProps) {
   const project = createMemo(() => {
     const value = summary()?.project;
     if (value) return value;
-    const directory = String(props.session.directory || "").replace(/[\\/]+$/, "");
+    const directory = String(hit()?.directory || "").replace(/[\\/]+$/, "");
     return directory.split(/[\\/]/).pop() || "(未知项目)";
   });
+
+  const hitSessionId = createMemo(() => hit()?.sessionId ?? "");
 
   const busy = createMemo(() => summaryState() === "loading" || readState() === "loading");
 
   async function loadSummary() {
+    const sessionId = hitSessionId();
     const token = ++summaryToken;
+    if (!sessionId) {
+      setSummary(null);
+      setSummaryError("");
+      setSummaryState("idle");
+      return;
+    }
     setSummary(null);
     setSummaryError("");
     setSummaryState("loading");
     try {
       const result = (await props.ctx.client.rpc(SearchRpc).summary({
-        sessionId: props.session.id,
+        sessionId,
       })) as SummaryOutput | { message?: string };
       if (token !== summaryToken) return;
       if (!result || typeof (result as SummaryOutput).source !== "string") {
@@ -206,7 +223,7 @@ export function DetailPanel(props: DetailPanelProps) {
 
   createEffect(
     on(
-      () => props.session.id,
+      () => hitSessionId(),
       () => {
         void loadSummary();
       },
@@ -242,10 +259,8 @@ export function DetailPanel(props: DetailPanelProps) {
   }
 
   function openSession() {
-    props.ctx.tabs.open(
-      { server: props.session.server.id, id: props.session.id },
-      { focus: true },
-    );
+    const current = hit();
+    if (current) props.onOpen(current);
   }
 
   const onKey = (event: KeyboardEvent) => {
@@ -287,7 +302,9 @@ export function DetailPanel(props: DetailPanelProps) {
         when={hit()}
         fallback={
           <div class="oc-detail-body">
-            <div class="oc-detail-empty">从会话搜索框选择一条正文命中，面板会自动打开。</div>
+            <div class="oc-detail-empty">
+              在搜索浮层里选中一条结果，这里会显示项目、当时在做、解决与命中原文。
+            </div>
           </div>
         }
       >

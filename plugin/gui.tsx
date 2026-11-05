@@ -26,6 +26,7 @@ import { DETAIL_CSS, DETAIL_KEY_ID, DetailPanel } from "./panel";
 import {
   groupHitsBySession,
   pendingFor,
+  selectionFor,
   type DetailSelection,
   type PendingSelection,
 } from "./panel-model";
@@ -121,6 +122,21 @@ export default Plugin.define({
       ctx.tabs.open({ server, id: item.sessionId }, { focus: true });
     }
 
+    /**
+     * 浮层选中项 → 右侧详情栏。
+     *
+     * 面板按会话注册，所以挂到「当前会话」的 strip 上，内容由 selection 决定，
+     * 即使命中来自别的会话也能预览。首页没有当前会话时返回，浮层只显示结果列表。
+     */
+    function showDetail(item: SearchOutputItem, query: string) {
+      const host = ctx.sessions.current();
+      if (!host) return;
+      setSelection(host.id, selectionFor(query, item));
+      if (ctx.layout.state(panelKey, host) === "closed") {
+        ctx.layout.open(panelKey, host, { tab: "select" });
+      }
+    }
+
     function clearPendingTimer(sessionId: string) {
       const timer = pendingTimers.get(sessionId);
       if (timer) {
@@ -214,6 +230,7 @@ export default Plugin.define({
           open={overlayOpen}
           onClose={() => setOverlayOpen(false)}
           onOpen={openResult}
+          onSelect={showDetail}
         />
       ),
     });
@@ -237,6 +254,7 @@ export default Plugin.define({
           panelKey={panelKey}
           selection={() => selection[props.session.id]}
           onIndex={(index) => setSelection(props.session.id, "index", index)}
+          onOpen={openResult}
         />
       ),
     });
