@@ -268,9 +268,12 @@ P1 要做的第一件事：
   选中项 120ms 防抖后经 `selectionFor` 写入当前会话的 selection，并在面板关闭时
   `layout.open`；面板内容与自身会话解耦，摘要按命中项 sessionId 取；
 - 首页没有当前会话时无法挂侧栏，此时浮层只显示结果列表；
+- 详情栏切换结果时**不清空旧内容**，旧数据半透明显示直到新数据到达（避免高度抖动）；
+  首次打开先渲染骨架，320ms 后再拉 summary/read，错开侧栏展开动画；
 - 浮层与详情栏联动避让：从标题行入口向上量出时间线左边界、用 `.oc-detail` 量出详情栏宽度，
-  卡片在两者之间居中并限宽 720px；打开期间每 400ms 跟随面板开合 / 拖宽 / 窗口缩放重算，
-  窄窗自动收窄，不越过详情栏；
+  卡片在两者之间居中并限宽 720px；面板开合 / 拖宽靠 `ResizeObserver`（200ms 防抖）触发重算，
+  窗口缩放同样防抖，不轮询；位移走 `translate3d` + 180ms `cubic-bezier(.22,1,.36,1)`，
+  `prefers-reduced-motion` 时关闭；窄窗自动收窄，不越过详情栏；
 - `Esc` / `↑` / `↓` 在 `document` 捕获阶段 `preventDefault + stopImmediatePropagation`，
   实测可拦住 Kobalte 的同层 Escape 监听；Enter 由输入框处理；
 - 打开会话时 server 解析顺序：已开标签页 → builtin → local → 当前会话；
