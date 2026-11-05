@@ -57,14 +57,19 @@ export const OVERLAY_CSS = `
   line-height: 1.55;
 }
 .oc-overlay[data-open="false"] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .oc-overlay-card { transition: none; }
+}
 .oc-overlay-scrim { position: absolute; inset: 0; background: transparent; }
 .oc-overlay-card {
   position: absolute;
   top: 64px;
-  left: var(--oc-card-left, 50%);
-  transform: var(--oc-card-shift, translateX(-50%));
+  left: 50%;
+  transform: translate3d(calc(-50% + var(--oc-card-offset, 0px)), 0, 0);
   width: var(--oc-card-width, min(720px, calc(100vw - 96px)));
   max-width: calc(100vw - 24px);
+  transition: transform 180ms cubic-bezier(.22, 1, .36, 1);
+  will-change: transform;
   max-height: min(74vh, 760px);
   display: flex;
   flex-direction: column;
@@ -201,11 +206,13 @@ export function SearchOverlay(props: SearchOverlayProps) {
   const [searchState, setSearchState] = createSignal<LoadState>("idle");
   const [searchError, setSearchError] = createSignal("");
   const [active, setActive] = createSignal(0);
-  const [box, setBox] = createSignal<{ left: number; width: number } | null>(null);
+  const [box, setBox] = createSignal<{ offset: number; width: number } | null>(null);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
-  let measureTimer: ReturnType<typeof setInterval> | undefined;
+  let measureTimer: ReturnType<typeof setTimeout> | undefined;
+  let panelObserver: ResizeObserver | undefined;
+  let observedPanel: HTMLElement | null = null;
   let searchToken = 0;
   let inputEl: HTMLInputElement | undefined;
 
@@ -266,7 +273,39 @@ export function SearchOverlay(props: SearchOverlayProps) {
       node = node.parentElement;
     }
 
-    setBox(cardBox({ viewportWidth, panelWidth, contentLeft }));
+    const measured = cardBox({ viewportWidth, panelWidth, contentLeft });
+    const next = {
+      offset: measured.left - viewportWidth / 2,
+      width: measured.width,
+    };
+    const previous = box();
+    if (
+      previous &&
+      Math.abs(previous.offset - next.offset) < 0.5 &&
+      previous.width === next.width
+    ) {
+      // 尺寸没变就别写信号，避免多余的渲染与过渡。
+      observePanel();
+      return;
+    }
+    setBox(next);
+    observePanel();
+  }
+
+  /** 合并连续变化（侧栏展开动画每帧都会改尺寸），停稳后再量。 */
+  function scheduleMeasure(delay = 200) {
+    clearTimeout(measureTimer);
+    measureTimer = setTimeout(measureCard, delay);
+  }
+
+  /** 详情栏开合 / 拖宽时重算；元素换了就重新挂。 */
+  function observePanel() {
+    const panel = document.querySelector<HTMLElement>(".oc-detail");
+    if (!panel || panel === observedPanel) return;
+    panelObserver?.disconnect();
+    observedPanel = panel;
+    panelObserver = new ResizeObserver(() => scheduleMeasure());
+    panelObserver.observe(panel);
   }
 
   function onInputKeyDown(event: KeyboardEvent) {
@@ -335,8 +374,8 @@ export function SearchOverlay(props: SearchOverlayProps) {
         if (!item) return;
         selectTimer = setTimeout(() => {
           props.onSelect(item, query().trim());
-          // 面板可能刚被打开或改变宽度，下一帧再量一次。
-          setTimeout(measureCard, 80);
+          // 侧栏展开约 300ms，等它停稳再量，避免追着动画每帧移动。
+          setTimeout(measureCard, 380);
         }, SELECT_DEBOUNCE_MS);
       },
     ),
@@ -376,27 +415,33 @@ export function SearchOverlay(props: SearchOverlayProps) {
       }
     };
     document.addEventListener("keydown", onKey, true);
-    window.addEventListener("resize", measureCard);
+    const onResize = () => scheduleMeasure();
+    window.addEventListener("resize", onResize);
     onCleanup(() => {
       document.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("resize", measureCard);
+      window.removeEventListener("resize", onResize);
     });
   });
 
-  // 打开期间持续跟随布局（面板开合、拖宽、窗口缩放）。
+  // 打开时量一次；之后靠 ResizeObserver / 窗口缩放触发，不再轮询。
   createEffect(
     on(() => props.open(), (value) => {
-      clearInterval(measureTimer);
-      if (!value) return;
+      clearTimeout(measureTimer);
+      if (!value) {
+        panelObserver?.disconnect();
+        observedPanel = null;
+        return;
+      }
       requestAnimationFrame(measureCard);
-      measureTimer = setInterval(measureCard, 400);
+      setTimeout(measureCard, 380);
     }),
   );
 
   onCleanup(() => {
     clearTimeout(searchTimer);
     clearTimeout(selectTimer);
-    clearInterval(measureTimer);
+    clearTimeout(measureTimer);
+    panelObserver?.disconnect();
   });
 
   const emptyText = createMemo(() => {
@@ -414,9 +459,8 @@ export function SearchOverlay(props: SearchOverlayProps) {
       style={
         box()
           ? {
-              "--oc-card-left": `${box()!.left}px`,
+              "--oc-card-offset": `${box()!.offset}px`,
               "--oc-card-width": `${box()!.width}px`,
-              "--oc-card-shift": "none",
             }
           : undefined
       }
