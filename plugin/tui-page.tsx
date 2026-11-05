@@ -678,10 +678,11 @@ export function FineSearchPage(props: FineSearchPageProps) {
   });
 
   const footerHint = createMemo(() => {
+    const backHint = props.searchTab ? "Esc 关标签回原会话" : "Esc 返回";
     if (!layout().wide) {
-      return "↑↓ 移动 · PgUp/PgDn 翻页 · Tab 列表/摘要/回放 · Ctrl+O 筛选 · Enter 新标签打开 · Esc 返回";
+      return `↑↓ 移动 · PgUp/PgDn 翻页 · Tab 列表/摘要/回放 · Ctrl+O 筛选 · Enter 新标签打开 · ${backHint}`;
     }
-    return "↑↓ 移动 · PgUp/PgDn 翻页 · Tab 摘要/回放 · Ctrl+O 筛选 · Ctrl+T 思考 · Ctrl+J 展开 · Enter 新标签打开 · Esc 返回";
+    return `↑↓ 移动 · PgUp/PgDn 翻页 · Tab 摘要/回放 · Ctrl+O 筛选 · Ctrl+T 思考 · Ctrl+J 展开 · Enter 新标签打开 · ${backHint}`;
   });
 
   /** 各类型命中数（基于未筛选的结果，切换时才看得出差别）。 */

@@ -79,6 +79,8 @@ async function openPage(context: Context, input?: string): Promise<void> {
       try {
         context.keymap.dispatch("session.new");
         searchTab = await waitForNewTab(context, before);
+        // 等宿主把焦点/路由一起切到新标签，避免导航落在旧标签上。
+        if (searchTab) await new Promise((resolve) => setTimeout(resolve, 80));
       } catch {
         searchTab = undefined;
       }
@@ -92,6 +94,21 @@ async function openPage(context: Context, input?: string): Promise<void> {
     name: PAGE_NAME,
     data: { back, ...(searchTab ? { searchTab } : {}), ...(query ? { query } : {}) },
   });
+  if (searchTab) {
+    context.ui.toast.show({
+      message: "搜索页在独立标签；Esc 关闭标签并回到原会话",
+      variant: "info",
+      duration: 2200,
+    });
+  } else {
+    context.ui.toast.show({
+      message: context.ui.tabs.enabled()
+        ? "未能新建标签，已临时占用当前页；Esc 可返回"
+        : "标签页已关闭（tabs.mode=off），已临时占用当前页；开启标签页才能保留原会话",
+      variant: "warning",
+      duration: 4000,
+    });
+  }
 }
 
 function activeSession(context: Context): string | undefined {
@@ -102,7 +119,7 @@ function activeSession(context: Context): string | undefined {
 function waitForNewTab(
   context: Context,
   before: string | undefined,
-  timeoutMs = 1000,
+  timeoutMs = 1500,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
