@@ -9,6 +9,7 @@
     "build:gui": "vite build --config plugin/vite.config.ts",
     "dev:gui": "vite build --config plugin/vite.config.ts --watch",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint plugin lib tests bin",
     "test": "node --test"
   },
   "devDependencies": {
@@ -20,6 +21,7 @@
     "@types/node": "26.6.6",
     "effect": "4.0.6",
     "electron": "45.2.2",
+    "oxlint": "^1.91.0",
     "solid-js": "1.9.18",
     "typescript": "5.9.3",
     "vite": "7.3.7",
