@@ -38,6 +38,14 @@ export function pendingFor(
   return entry;
 }
 
+/** 查询词拆成高亮词表；空查询返回空数组。 */
+export function termsOf(query: string | undefined): string[] {
+  return String(query ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 export function collapseLines(text: string, expanded: boolean, limit = 20) {
   const lines = String(text ?? "").split("\n");
   const total = lines.length;

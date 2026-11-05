@@ -4,7 +4,7 @@
  * 数据来自 summary 与 read RPC；面板只读，不写会话数据。
  */
 
-import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import {
   usePanel,
   type Context,
@@ -13,10 +13,15 @@ import {
 } from "@opencode/plugin/gui";
 
 import {
-  collapseLines,
+  SummaryBlock,
+  TextBlock,
+  errorText,
+  type LoadState,
+} from "./detail-parts";
+import {
   formatWhen,
   kindLabel,
-  sourceLabel,
+  termsOf,
   type DetailSelection,
 } from "./panel-model";
 import { SearchRpc, type ReadOutput, type SummaryOutput } from "./rpc";
@@ -93,54 +98,11 @@ export const DETAIL_CSS = `
 }
 .oc-detail-badge.tool { color: #d7c3ff; border-color: rgba(167,139,250,.35); background: rgba(167,139,250,.10); }
 .oc-detail-badge.query mark { background: var(--oc-hit); color: var(--oc-hit-text); border-radius: 2px; padding: 0 2px; }
-.oc-detail-label {
-  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
-  color: var(--oc-faint); font-size: 11px; letter-spacing: .06em;
-}
-.oc-detail-label::after { content: ""; flex: 1; height: 1px; background: var(--oc-line); }
-.oc-detail-source {
-  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--oc-line-strong);
-  color: #cfcfcf; background: #232323; letter-spacing: 0; font-size: 10px;
-}
-.oc-detail-context {
-  flex: 0 0 auto; max-height: 34%; overflow: auto;
-  padding: 9px 11px; border: 1px solid var(--oc-line); border-radius: 8px;
-  background: var(--oc-panel); color: #c7c7c7; line-height: 1.65;
-}
-.oc-detail-row { display: flex; gap: 8px; }
-.oc-detail-row + .oc-detail-row {
-  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--oc-line);
-}
-.oc-detail-row .k { flex: 0 0 52px; color: var(--oc-faint); font-size: 11px; padding-top: 2px; }
-.oc-detail-row .v { flex: 1; min-width: 0; }
-.oc-detail-row .v b { color: #ededed; font-weight: 600; }
-.oc-detail-hit-wrap { flex: 1 1 auto; min-height: 120px; min-width: 0; display: flex; flex-direction: column; }
-.oc-detail-hit {
-  flex: 1; min-height: 0; overflow: auto;
-  margin-top: 6px; padding: 10px 10px 8px;
-  border: 1px solid var(--oc-line); border-radius: 8px; background: #171717;
-  color: #b8b8b8; font-family: ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
-  font-size: 11.5px; line-height: 1.8;
-}
-.oc-detail-line { display: flex; white-space: pre-wrap; word-break: break-word; }
-.oc-detail-line .ln { flex: 0 0 26px; color: #4d4d4d; user-select: none; }
-.oc-detail-line .code { min-width: 0; white-space: pre-wrap; word-break: break-word; }
-.oc-detail-line mark { background: var(--oc-hit); color: var(--oc-hit-text); border-radius: 2px; padding: 0 1px; }
-.oc-detail-nav { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; color: var(--oc-faint); font-size: 11px; }
-.oc-detail-nav .spacer { flex: 1; }
 .oc-detail-foot {
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-top: 1px solid var(--oc-line); background: #191919;
 }
 .oc-detail-hint { margin-left: auto; color: var(--oc-faint); font-size: 11px; white-space: nowrap; }
-.oc-detail-empty, .oc-detail-loading, .oc-detail-error {
-  color: var(--oc-muted); font-size: 12px; line-height: 1.7;
-}
-.oc-detail-error { color: #fca5a5; }
-.oc-detail-error button {
-  margin-left: 6px; border: 1px solid var(--oc-line-strong); border-radius: 5px;
-  background: #242424; color: #dcdcdc; font-size: 11px; padding: 1px 6px; cursor: pointer;
-}
 `;
 
 interface DetailPanelProps {
@@ -150,48 +112,6 @@ interface DetailPanelProps {
   panelKey: string;
   selection: () => DetailSelection | undefined;
   onIndex: (index: number) => void;
-}
-
-type LoadState = "idle" | "loading" | "ready" | "error";
-
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message?: unknown }).message ?? "");
-  }
-  return String(error);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function highlightParts(text: string, terms: string[]) {
-  const source = String(text ?? "");
-  const words = [...new Set(terms.map((term) => term.trim()).filter(Boolean))].sort(
-    (a, b) => b.length - a.length,
-  );
-  if (!words.length) return [{ text: source, hit: false }];
-
-  const pattern = new RegExp(words.map(escapeRegExp).join("|"), "gi");
-  const parts = [];
-  let last = 0;
-  for (const match of source.matchAll(pattern)) {
-    const at = match.index ?? 0;
-    if (at > last) parts.push({ text: source.slice(last, at), hit: false });
-    parts.push({ text: match[0], hit: true });
-    last = at + match[0].length;
-  }
-  if (last < source.length) parts.push({ text: source.slice(last), hit: false });
-  return parts.length ? parts : [{ text: source, hit: false }];
-}
-
-function Highlight(props: { text: string; terms: string[] }) {
-  return (
-    <For each={highlightParts(props.text, props.terms)}>
-      {(part) => (part.hit ? <mark>{part.text}</mark> : <>{part.text}</>)}
-    </For>
-  );
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -214,12 +134,7 @@ export function DetailPanel(props: DetailPanelProps) {
     return selection.hits[index] ?? selection.hits[0];
   });
 
-  const terms = createMemo(() =>
-    String(props.selection()?.query ?? "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean),
-  );
+  const terms = createMemo(() => termsOf(props.selection()?.query));
 
   const total = createMemo(() => props.selection()?.hits.length ?? 0);
   const index = createMemo(() => {
@@ -235,7 +150,6 @@ export function DetailPanel(props: DetailPanelProps) {
     return directory.split(/[\\/]/).pop() || "(未知项目)";
   });
 
-  const lines = createMemo(() => collapseLines(text(), expanded()));
   const busy = createMemo(() => summaryState() === "loading" || readState() === "loading");
 
   async function loadSummary() {
@@ -402,116 +316,47 @@ export function DetailPanel(props: DetailPanelProps) {
                 </Show>
               </div>
 
-              <div class="oc-detail-label">
-                上下文
-                <Show when={summary()?.source}>
-                  <span class="oc-detail-source">{sourceLabel(summary()!.source)}</span>
-                </Show>
-              </div>
+              <SummaryBlock
+                summary={summary()}
+                state={summaryState()}
+                error={summaryError()}
+                onRetry={() => void loadSummary()}
+              />
 
-              <Show
-                when={summaryState() !== "loading"}
-                fallback={<div class="oc-detail-context oc-detail-loading">正在加载摘要…</div>}
-              >
-                <Show
-                  when={summary()}
-                  fallback={
-                    <div class="oc-detail-context oc-detail-error">
-                      摘要加载失败：{summaryError()}
-                      <button type="button" onClick={() => void loadSummary()}>
-                        重试
-                      </button>
-                    </div>
-                  }
-                >
-                  {(value) => (
-                    <div class="oc-detail-context">
-                      <div class="oc-detail-row">
-                        <span class="k">大项目</span>
-                        <span class="v">
-                          <b>{value().project}</b> · {value().sessionCount} 个会话
-                          <Show when={value().lastActive}>
-                            <span> · 最近活跃 {formatWhen(value().lastActive)}</span>
-                          </Show>
-                        </span>
-                      </div>
-                      <div class="oc-detail-row">
-                        <span class="k">当时在做</span>
-                        <span class="v">{value().doing}</span>
-                      </div>
-                      <div class="oc-detail-row">
-                        <span class="k">解决</span>
-                        <span class="v">{value().solved}</span>
-                      </div>
-                    </div>
-                  )}
-                </Show>
-              </Show>
-
-              <div class="oc-detail-hit-wrap">
-                <div class="oc-detail-label">命中原文</div>
-                <Show
-                  when={readState() !== "loading"}
-                  fallback={<div class="oc-detail-hit oc-detail-loading">正在加载原文…</div>}
-                >
-                  <Show
-                    when={readState() !== "error"}
-                    fallback={
-                      <div class="oc-detail-hit oc-detail-error">
-                        原文加载失败：{readError()}
-                        <button type="button" onClick={() => void loadText()}>
-                          重试
-                        </button>
-                      </div>
-                    }
-                  >
-                    <div class="oc-detail-hit">
-                      <For each={lines().visible}>
-                        {(line, lineIndex) => (
-                          <div class="oc-detail-line">
-                            <span class="ln">{String(lineIndex() + 1).padStart(2, "0")}</span>
-                            <span class="code">
-                              <Highlight text={line} terms={terms()} />
-                            </span>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
-              </div>
-
-              <div class="oc-detail-nav">
-                <span>
-                  片段 {index() + 1} / {total()}
-                </span>
-                <span class="spacer" />
-                <Show when={lines().canExpand}>
-                  <props.ctx.ui.Button
-                    variant="ghost"
-                    size="small"
-                    onClick={() => setExpanded((value) => !value)}
-                  >
-                    {expanded() ? "收起" : `展开全部（共 ${lines().total} 行）`}
-                  </props.ctx.ui.Button>
-                </Show>
-                <props.ctx.ui.Button
-                  variant="ghost"
-                  size="small"
-                  disabled={total() < 2}
-                  onClick={() => go(-1)}
-                >
-                  ↑ 上一条
-                </props.ctx.ui.Button>
-                <props.ctx.ui.Button
-                  variant="ghost"
-                  size="small"
-                  disabled={total() < 2}
-                  onClick={() => go(1)}
-                >
-                  ↓ 下一条
-                </props.ctx.ui.Button>
-              </div>
+              <TextBlock
+                text={text()}
+                terms={terms()}
+                state={readState()}
+                error={readError()}
+                expanded={expanded()}
+                onToggle={() => setExpanded((value) => !value)}
+                onRetry={() => void loadText()}
+                navStart={
+                  <span>
+                    片段 {index() + 1} / {total()}
+                  </span>
+                }
+                navEnd={
+                  <>
+                    <props.ctx.ui.Button
+                      variant="ghost"
+                      size="small"
+                      disabled={total() < 2}
+                      onClick={() => go(-1)}
+                    >
+                      ↑ 上一条
+                    </props.ctx.ui.Button>
+                    <props.ctx.ui.Button
+                      variant="ghost"
+                      size="small"
+                      disabled={total() < 2}
+                      onClick={() => go(1)}
+                    >
+                      ↓ 下一条
+                    </props.ctx.ui.Button>
+                  </>
+                }
+              />
             </div>
 
             <div class="oc-detail-foot">

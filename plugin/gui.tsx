@@ -18,6 +18,7 @@ import {
 import { createEffect, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 
+import { DETAIL_PARTS_CSS } from "./detail-parts";
 import { DETAIL_CSS, DETAIL_KEY_ID, DetailPanel } from "./panel";
 import {
   groupHitsBySession,
@@ -147,6 +148,7 @@ export default Plugin.define({
       ctx.layout.open(panelKey, current, { tab: "select" });
     });
 
+    ctx.add(Style, DETAIL_PARTS_CSS);
     ctx.add(Style, DETAIL_CSS);
 
     // ---- 搜索入口占位：P1 起替换为正式浮层入口 ----
