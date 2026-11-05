@@ -3,9 +3,8 @@
  *
  * 1. 标题行「全文」按钮 / ⌘⇧G 打开非模态搜索浮层（见 ./overlay）：
  *    fixed 定位、不压黑主界面、选中即预览、Enter 打开会话。
- * 2. 复用 OpenCode 自带的「会话搜索」对话框与命令面板：
- *    在标题搜索之外追加正文命中（见 ./palette-search）。
- * 3. 命中会话后自动打开详情面板（见 ./panel）；浮层预览已内置同一套渲染。
+ * 2. 原生「会话搜索」的正文补丁默认关闭（见 USE_NATIVE_SEARCH_PATCH），
+ *    保留 ./palette-search 与详情面板的自动打开作为回退路径。
  */
 
 import {
@@ -33,6 +32,14 @@ import {
 import { installContentSearch } from "./palette-search";
 import { SearchRpc, type SearchOutputItem, type StatusOutput } from "./rpc";
 
+/**
+ * 是否给原生会话搜索（mod+shift+f）打正文补丁。
+ *
+ * P1 起正文检索由非模态浮层接管，默认关闭；改成 true 即可恢复
+ * `[正文]` 条目与「选中会话自动打开详情面板」这套回退路径。
+ */
+const USE_NATIVE_SEARCH_PATCH = false;
+
 function describeStatus(status: StatusOutput): string {
   if (!status.ready) {
     const detail = status.error ? `：${status.error}` : "";
@@ -52,19 +59,21 @@ async function probeStatus(ctx: Context) {
   try {
     const status = (await ctx.client.rpc(SearchRpc).status({})) as StatusOutput;
     let probe = "";
-    if (status.ready) {
+    if (status.ready && USE_NATIVE_SEARCH_PATCH) {
       const result = await ctx.client.session.list({ search: "连接池", limit: 3 });
       const first = result?.data?.[0];
       probe = first?.title?.startsWith("[正文]")
-        ? "正文搜索已接入原生搜索框"
-        : "正文补丁未生效，将退回标题搜索";
+        ? "；正文搜索已接入原生搜索框"
+        : "；正文补丁未生效，将退回标题搜索";
     }
 
     toast.dismiss();
     ctx.toast.show({
       title: status.ready ? "全文检索已就绪" : "全文检索尚未就绪",
-      description: probe ? `${describeStatus(status)}；${probe}` : describeStatus(status),
-      variant: status.ready && (!probe || probe.startsWith("正文搜索")) ? "success" : "error",
+      description: status.ready
+        ? `${describeStatus(status)}${probe || "；⌘⇧G 打开搜索浮层"}`
+        : describeStatus(status),
+      variant: status.ready ? "success" : "error",
       icon: "magnifying-glass",
     });
   } catch (error) {
@@ -154,7 +163,9 @@ export default Plugin.define({
       const client = ctx.client;
       restore?.();
       restore = undefined;
-      if (client) restore = installContentSearch(client, { onHits: recordHits });
+      if (client && USE_NATIVE_SEARCH_PATCH) {
+        restore = installContentSearch(client, { onHits: recordHits });
+      }
     });
 
     // 搜索命中后，用户选中对应会话时自动打开详情面板（5 秒窗口）。
@@ -247,7 +258,7 @@ export default Plugin.define({
     ctx.add(Command, (): Command => ({
       id: "status",
       title: "全文检索：状态与自检",
-      description: "检查 sidecar 索引，并验证正文搜索已接入原生会话搜索框",
+      description: "检查 sidecar 索引与全文检索状态",
       keywords: "search index 全文 检索 索引 状态 fine",
       group: "搜索",
       section: "general",
