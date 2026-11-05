@@ -1,6 +1,8 @@
 # 详情面板 + 摘要回填 · 实施方案
 
-> 状态：待执行
+> 状态：部分被 `docs/plan-nonmodal-search.md` 取代
+> 取代范围：不再“选中后自动打开详情面板”，预览并入非模态搜索浮层；
+> 摘要来源、三段上下文、20 行折叠、来源徽标仍沿用本文档。
 > 前置分支：`feat/p0-skeleton`
 > 示意：`docs/mock/detail-panel.jpg`（源文件 `docs/mock/detail-panel.html`）
 
