@@ -210,7 +210,9 @@ export function SearchOverlay(props: SearchOverlayProps) {
   const [searchState, setSearchState] = createSignal<LoadState>("idle");
   const [searchError, setSearchError] = createSignal("");
   const [active, setActive] = createSignal(0);
-  const [box, setBox] = createSignal<{ offset: number; width: number } | null>(null);
+  const [box, setBox] = createSignal<{ offset: number; width: number; panelWidth: number } | null>(
+    null,
+  );
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -282,12 +284,14 @@ export function SearchOverlay(props: SearchOverlayProps) {
     const next = {
       offset: cardOffset(measured.left, measured.width, viewportWidth),
       width: measured.width,
+      panelWidth,
     };
     const previous = box();
     if (
       previous &&
       Math.abs(previous.offset - next.offset) < 0.5 &&
-      previous.width === next.width
+      previous.width === next.width &&
+      previous.panelWidth === next.panelWidth
     ) {
       // 尺寸没变就别写信号，避免多余的渲染与过渡。
       observePanel();
@@ -483,7 +487,11 @@ export function SearchOverlay(props: SearchOverlayProps) {
           : undefined
       }
     >
-      <div class="oc-overlay-scrim" onClick={props.onClose} />
+      <div
+        class="oc-overlay-scrim"
+        style={box() && box()!.panelWidth > 0 ? { right: `${box()!.panelWidth}px` } : undefined}
+        onClick={props.onClose}
+      />
 
       <div class="oc-overlay-card" role="dialog" aria-label="搜索全部会话">
         <div class="oc-overlay-head">
