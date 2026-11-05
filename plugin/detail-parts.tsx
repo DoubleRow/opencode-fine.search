@@ -136,7 +136,7 @@ export function SummaryBlock(props: SummaryBlockProps) {
       </div>
 
       <Show
-        when={props.state !== "loading"}
+        when={props.state !== "loading" && props.state !== "idle"}
         fallback={<div class="oc-detail-context oc-detail-loading">正在加载摘要…</div>}
       >
         <Show
@@ -196,7 +196,7 @@ export function TextBlock(props: TextBlockProps) {
       <div class="oc-detail-label">{props.label ?? "命中原文"}</div>
 
       <Show
-        when={props.state !== "loading"}
+        when={props.state !== "loading" && props.state !== "idle"}
         fallback={<div class="oc-detail-hit oc-detail-loading">正在加载原文…</div>}
       >
         <Show
