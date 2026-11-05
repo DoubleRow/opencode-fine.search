@@ -13,13 +13,16 @@ import {
   dayLabel,
   displayWidth,
   errorText,
+  firstLineIndexFor,
   fitText,
   flatten,
   groupBySession,
   highlightParts,
+  moveScroll,
   nextFilter,
   previewView,
   projectName,
+  replayLines,
   scrollStart,
   sourceLabel,
   stepHits,
@@ -205,4 +208,92 @@ test("clipLines 限行数并补省略号", () => {
 
 test("timeLabel 两位补零", () => {
   assert.equal(timeLabel(new Date(2026, 0, 5, 8, 9).getTime()), "08:09");
+});
+
+const streamItem = (overrides = {}) => ({
+  segmentId: 10,
+  messageId: "m1",
+  kind: "assistant",
+  ts: new Date(2026, 0, 5, 8, 9).getTime(),
+  text: "正文内容",
+  truncated: false,
+  length: 4,
+  ...overrides,
+});
+
+test("replayLines 条头/正文/命中/截断提示", () => {
+  const lines = replayLines(
+    [
+      streamItem(),
+      streamItem({ segmentId: 11, truncated: true, length: 53860, text: "x".repeat(2000) }),
+    ],
+    { anchorSegmentId: 10, showReasoning: false, anchorExpanded: false, anchorFullText: null, width: 40 },
+  );
+  assert.ok(lines[0].text.includes("◀ 命中"));
+  assert.equal(lines[0].tone, "head");
+  assert.equal(lines[0].hit, true);
+  assert.equal(lines[1].text, "正文内容");
+  const secondHead = lines.find((l) => l.tone === "head" && l.segmentId === 11);
+  assert.ok(secondHead.text.includes("片段 11"));
+  assert.ok(secondHead.text.startsWith("08:09 助手"));
+  assert.ok(!secondHead.text.includes("命中"));
+  const hitNote = lines.filter((l) => l.tone === "note" && l.hit);
+  assert.equal(hitNote.length, 0); // 命中条未截断时不加提示
+  const otherNote = lines.find((l) => l.tone === "note" && l.segmentId === 11);
+  assert.ok(otherNote.text.includes("53860"));
+  assert.ok(otherNote.text.includes("打开会话看全文"));
+});
+
+test("replayLines 思考默认收起、Ctrl+T 展开", () => {
+  const think = streamItem({ segmentId: 12, kind: "reasoning", text: "想法", length: 2 });
+  const collapsed = replayLines([think], {
+    anchorSegmentId: 12,
+    showReasoning: false,
+    anchorExpanded: false,
+    anchorFullText: null,
+  });
+  assert.equal(collapsed.length, 2);
+  assert.ok(collapsed[1].text.includes("思考过程已收起"));
+  const shown = replayLines([think], {
+    anchorSegmentId: 12,
+    showReasoning: true,
+    anchorExpanded: false,
+    anchorFullText: null,
+  });
+  assert.ok(shown.some((l) => l.tone === "body" && l.text === "想法"));
+});
+
+test("replayLines 命中条 Ctrl+J 用全文替换并消提示", () => {
+  const truncatedHit = streamItem({ truncated: true, length: 9999, text: "y".repeat(4000) });
+  const before = replayLines([truncatedHit], {
+    anchorSegmentId: 10,
+    showReasoning: false,
+    anchorExpanded: false,
+    anchorFullText: null,
+  });
+  assert.ok(before.some((l) => l.tone === "note" && l.text.includes("Ctrl+J")));
+  const after = replayLines([truncatedHit], {
+    anchorSegmentId: 10,
+    showReasoning: false,
+    anchorExpanded: true,
+    anchorFullText: "z".repeat(9999),
+    width: 100,
+  });
+  assert.equal(after.filter((l) => l.tone === "note").length, 0);
+  assert.ok(after.some((l) => l.tone === "body" && l.text.startsWith("z")));
+});
+
+test("firstLineIndexFor/moveScroll 支撑回放视口补偿", () => {
+  const lines = replayLines(
+    [streamItem({ segmentId: 1 }), streamItem({ segmentId: 2 })],
+    { anchorSegmentId: 1, showReasoning: true, anchorExpanded: false, anchorFullText: null },
+  );
+  assert.ok(firstLineIndexFor(lines, 1) === 0);
+  const second = firstLineIndexFor(lines, 2);
+  assert.ok(second > 0);
+  assert.equal(firstLineIndexFor(lines, 99), -1);
+  assert.equal(moveScroll(5, -10, 20), 0);
+  assert.equal(moveScroll(5, 10, 20), 15);
+  assert.equal(moveScroll(15, 10, 20), 19);
+  assert.equal(moveScroll(0, 1, 0), 0);
 });

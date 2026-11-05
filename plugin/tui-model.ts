@@ -4,10 +4,10 @@
  * 不依赖 DOM / Solid / OpenTUI，node:test 可直接引用（type-stripping）。
  */
 
-import type { SearchOutputItem } from "./rpc.ts";
+import type { SearchOutputItem, StreamItem } from "./rpc.ts";
 import { FILTERS, type OverlayFilter } from "./overlay-model.ts";
 import { collapseLines } from "./panel-model.ts";
-import { roleLabel } from "./stream-model.ts";
+import { DISPLAY_CHARS, previewText, roleLabel } from "./stream-model.ts";
 
 /** 输入防抖：低于 GUI 侧感知阈值，避免每键一发 RPC。 */
 export const DEBOUNCE_MS = 120;
@@ -330,4 +330,92 @@ export function previewView(
   const hidden = collapsed.hidden;
   if (hidden > 0) lines.push(`… 另有 ${hidden} 行（Tab 切到只读回放）`);
   return { lines, hidden };
+}
+
+/** 只读回放的显示窗口行数（右栏，独立于结果列表窗口）。 */
+export const REPLAY_WINDOW = 24;
+
+export interface ReplayOptions {
+  anchorSegmentId: number;
+  /** 思考段是否展开（Ctrl+T），默认收起，与 GUI 口径一致。 */
+  showReasoning: boolean;
+  /** 命中条是否已用 read 取全文展开（Ctrl+J）。 */
+  anchorExpanded: boolean;
+  /** read 返回的命中条全文；未加载时为 null。 */
+  anchorFullText: string | null;
+  width?: number;
+}
+
+export interface ReplayLine {
+  text: string;
+  tone: "head" | "body" | "note" | "collapsed";
+  /** 该行属于哪个片段；提示行也携带，便于回跳定位。 */
+  segmentId: number;
+  /** 是否为当前命中条的行。 */
+  hit: boolean;
+}
+
+/**
+ * 回放行渲染数据：条头、正文（2000 字显示截断）、思考收起行、剩余提示。
+ * 命中条在 anchorExpanded 后用全文（read RPC）替换流内的 4000 字截断。
+ */
+export function replayLines(items: readonly StreamItem[], opts: ReplayOptions): ReplayLine[] {
+  const width = opts.width ?? PREVIEW_WIDTH;
+  const lines: ReplayLine[] = [];
+  for (const item of items) {
+    const isHit = item.segmentId === opts.anchorSegmentId;
+    lines.push({
+      segmentId: item.segmentId,
+      hit: isHit,
+      tone: "head",
+      text: `${timeLabel(item.ts)} ${roleLabel(item.kind)} · 片段 ${item.segmentId}${isHit ? " ◀ 命中" : ""}`,
+    });
+
+    if (item.kind === "reasoning" && !opts.showReasoning) {
+      lines.push({
+        segmentId: item.segmentId,
+        hit: isHit,
+        tone: "collapsed",
+        text: `思考过程已收起 · 共 ${item.length} 字（Ctrl+T 展开）`,
+      });
+      continue;
+    }
+
+    const useFull = isHit && opts.anchorExpanded && typeof opts.anchorFullText === "string";
+    const shown = useFull ? String(opts.anchorFullText) : previewText(item.text, DISPLAY_CHARS).text;
+    for (const source of shown.split("\n")) {
+      for (const chunk of wrapLine(source, width)) {
+        lines.push({ segmentId: item.segmentId, hit: isHit, tone: "body", text: chunk });
+      }
+    }
+
+    const remaining = Math.max(0, (Number(item.length) || 0) - shown.length);
+    if (remaining > 0) {
+      lines.push({
+        segmentId: item.segmentId,
+        hit: isHit,
+        tone: "note",
+        text: isHit && !opts.anchorExpanded
+          ? `… 本条共 ${item.length} 字（Ctrl+J 展开全文）`
+          : `… 本条共 ${item.length} 字（打开会话看全文）`,
+      });
+    }
+  }
+  return lines;
+}
+
+/** 找到某片段首行的下标；用于「加载更早」后保持视口稳定。找不到返回 -1。 */
+export function firstLineIndexFor(lines: readonly ReplayLine[], segmentId: number): number {
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].segmentId === segmentId) return i;
+  }
+  return -1;
+}
+
+/** 滚动位置步进并夹在 [0, count-1]。 */
+export function moveScroll(prev: number, delta: number, count: number): number {
+  const max = Math.max(0, count - 1);
+  const current = Math.max(0, Math.trunc(prev) || 0);
+  const step = Math.trunc(delta) || 0;
+  return Math.max(0, Math.min(current + step, max));
 }

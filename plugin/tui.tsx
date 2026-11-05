@@ -21,30 +21,39 @@ import {
   type ReadOutput,
   type SearchOutputItem,
   type StatusOutput,
+  type StreamItem,
+  type StreamOutput,
   type SummaryOutput,
 } from "./rpc.js";
 import { FILTERS, filterItems, filterLabel, type OverlayFilter } from "./overlay-model.js";
 import { kindLabel, termsOf } from "./panel-model.js";
+import { mergeItems, nextOffset } from "./stream-model.js";
 import {
   DEBOUNCE_MS,
   LIST_WINDOW,
   PAGE_HITS,
   PREVIEW_LINES,
   PREVIEW_WIDTH,
+  REPLAY_WINDOW,
   SEARCH_LIMIT,
+  STREAM_PAGE,
   buildRows,
   clipLines,
   errorText,
+  firstLineIndexFor,
   flatten,
   highlightParts,
+  moveScroll,
   nextFilter,
   previewView,
   projectName,
+  replayLines,
   scrollStart,
   sourceLabel,
   stepHits,
   timeLabel,
   tokenLane,
+  type ReplayLine,
   type TuiRow,
 } from "./tui-model.js";
 
@@ -103,6 +112,21 @@ function SearchDialog(props: SearchDialogProps) {
   const [summary, setSummary] = createSignal<SummaryOutput | null>(null);
   const [segment, setSegment] = createSignal<ReadOutput | null>(null);
 
+  const [view, setView] = createSignal<"preview" | "replay">("preview");
+  const [streamState, setStreamState] = createSignal<PreviewState>("idle");
+  const [streamError, setStreamError] = createSignal("");
+  const [streamItems, setStreamItems] = createSignal<StreamItem[]>([]);
+  const [streamOffset, setStreamOffset] = createSignal(0);
+  const [streamTotal, setStreamTotal] = createSignal(0);
+  const [streamHasMore, setStreamHasMore] = createSignal(false);
+  const [streamBusy, setStreamBusy] = createSignal<"" | "before" | "after">("");
+  const [showReasoning, setShowReasoning] = createSignal(false);
+  const [anchorExpanded, setAnchorExpanded] = createSignal(false);
+  const [anchorFullText, setAnchorFullText] = createSignal<string | null>(null);
+  const [replayScroll, setReplayScroll] = createSignal(0);
+  const [replayTitle, setReplayTitle] = createSignal("");
+  const [anchorSegment, setAnchorSegment] = createSignal(-1);
+
   const rows = createMemo<TuiRow[]>(() => buildRows(filterItems(items(), filter())));
   const windowed = createMemo(() => {
     const all = rows();
@@ -118,6 +142,8 @@ function SearchDialog(props: SearchDialogProps) {
   const searchLane = tokenLane();
   const summaryLane = tokenLane();
   const readLane = tokenLane();
+  const streamLane = tokenLane();
+  const expandLane = tokenLane();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => {
@@ -237,34 +263,210 @@ function SearchDialog(props: SearchDialogProps) {
     previewTimer = setTimeout(() => void loadPreview(hit), DEBOUNCE_MS);
   });
 
+  const replayRowsMemo = createMemo<ReplayLine[]>(() =>
+    replayLines(streamItems(), {
+      anchorSegmentId: anchorSegment(),
+      showReasoning: showReasoning(),
+      anchorExpanded: anchorExpanded(),
+      anchorFullText: anchorFullText(),
+      width: PREVIEW_WIDTH,
+    }),
+  );
+
+  const replayWindow = createMemo(() => {
+    const all = replayRowsMemo();
+    const from = Math.max(0, Math.min(replayScroll(), Math.max(0, all.length - 1)));
+    return all.slice(from, from + REPLAY_WINDOW);
+  });
+
+  async function loadStreamInitial(hit: SearchOutputItem): Promise<void> {
+    const mine = streamLane.begin();
+    setAnchorSegment(hit.segmentId);
+    setStreamState("loading");
+    setStreamError("");
+    setStreamItems([]);
+    setStreamOffset(0);
+    setStreamTotal(0);
+    setStreamHasMore(false);
+    // 切换命中时上一次分页请求可能还在路上（token 会丢弃它），busy 必须手动复位。
+    setStreamBusy("");
+    setAnchorExpanded(false);
+    setAnchorFullText(null);
+    try {
+      const result = (await rpc().stream({
+        sessionId: hit.sessionId,
+        anchorSegmentId: hit.segmentId,
+        limit: STREAM_PAGE,
+      })) as StreamOutput;
+      if (!streamLane.isCurrent(mine)) return;
+      setReplayTitle(result.title);
+      setStreamTotal(result.total);
+      setStreamOffset(result.offset);
+      setStreamHasMore(result.hasMore);
+      setStreamItems(result.items);
+      setStreamState("ready");
+      const lines = replayLines(result.items, {
+        anchorSegmentId: hit.segmentId,
+        showReasoning: showReasoning(),
+        anchorExpanded: false,
+        anchorFullText: null,
+        width: PREVIEW_WIDTH,
+      });
+      const at = firstLineIndexFor(lines, hit.segmentId);
+      setReplayScroll(Math.max(0, at - 4));
+    } catch (error) {
+      if (!streamLane.isCurrent(mine)) return;
+      setStreamState("error");
+      setStreamError(errorText(error) || "未知错误");
+    }
+  }
+
+  async function loadMore(direction: "before" | "after"): Promise<void> {
+    const hit = selectedHit();
+    if (!hit || streamBusy()) return;
+    if (direction === "after" && !streamHasMore()) return;
+    const current = streamOffset();
+    // 翻页按「已加载条数」推进：before 用页宽回退（handoff §2.2）。
+    const target =
+      direction === "before"
+        ? nextOffset(current, STREAM_PAGE, "before")
+        : nextOffset(current, streamItems().length, "after");
+    if (direction === "before" && target >= current) return;
+
+    const mine = streamLane.begin();
+    setStreamBusy(direction);
+    setStreamError("");
+    const topSegment = streamItems()[0]?.segmentId ?? -1;
+    try {
+      const result = (await rpc().stream({
+        sessionId: hit.sessionId,
+        offset: target,
+        limit: STREAM_PAGE,
+      })) as StreamOutput;
+      if (!streamLane.isCurrent(mine)) return;
+      const merged = mergeItems(streamItems(), result.items);
+      setStreamItems(merged);
+      if (direction === "before") {
+        setStreamOffset(result.offset);
+        // 视口补偿回原顶部片段，避免跳动。
+        const keep = firstLineIndexFor(replayRowsMemo(), topSegment);
+        if (keep >= 0) setReplayScroll(keep);
+      } else {
+        setStreamHasMore(result.hasMore);
+      }
+    } catch (error) {
+      if (streamLane.isCurrent(mine)) setStreamError(errorText(error) || "分页加载失败");
+    } finally {
+      if (streamLane.isCurrent(mine)) setStreamBusy("");
+    }
+  }
+
+  function toggleView(): void {
+    if (view() === "replay") {
+      setView("preview");
+      return;
+    }
+    if (!selectedHit()) return;
+    setView("replay");
+  }
+
+  async function expandAnchor(): Promise<void> {
+    const hit = selectedHit();
+    if (!hit || view() !== "replay") return;
+    if (anchorExpanded()) {
+      setAnchorExpanded(false);
+      return;
+    }
+    const mine = expandLane.begin();
+    try {
+      const result = (await rpc().read({ segmentId: hit.segmentId })) as ReadOutput;
+      if (!expandLane.isCurrent(mine)) return;
+      setAnchorFullText(result.text);
+      setAnchorExpanded(true);
+    } catch (error) {
+      if (expandLane.isCurrent(mine)) setStreamError(`展开本条失败：${errorText(error)}`);
+    }
+  }
+
+  // 回放期间换命中必须重新锚定（handoff §2.3）。
+  createEffect(() => {
+    if (view() !== "replay") return;
+    const hit = selectedHit();
+    if (!hit || hit.segmentId === anchorSegment()) return;
+    void loadStreamInitial(hit);
+  });
+
   // 对话框级按键：随对话框销毁自动移除；不抢 Ctrl+C 等宿主键。
+  // PgUp/PgDn 与 ↑↓ 的语义按「预览 / 回放」两种视图分流。
   context.keymap.layer(() => ({
     mode: "global",
     priority: 50,
     commands: [
       {
         id: "fine.search.up",
-        title: "全文检索：上一条命中",
+        title: "全文检索：上一条/上滚",
         bind: "up",
-        run: () => applySelection(stepHits(rows(), sel(), -1)),
+        run: () => {
+          if (view() === "replay") {
+            setReplayScroll((s) => moveScroll(s, -1, replayRowsMemo().length));
+            return;
+          }
+          applySelection(stepHits(rows(), sel(), -1));
+        },
       },
       {
         id: "fine.search.down",
-        title: "全文检索：下一条命中",
+        title: "全文检索：下一条/下滚",
         bind: "down",
-        run: () => applySelection(stepHits(rows(), sel(), 1)),
+        run: () => {
+          if (view() === "replay") {
+            setReplayScroll((s) => moveScroll(s, 1, replayRowsMemo().length));
+            return;
+          }
+          applySelection(stepHits(rows(), sel(), 1));
+        },
       },
       {
         id: "fine.search.page.up",
-        title: "全文检索：上十条",
+        title: "全文检索：上十条/加载更早",
         bind: "pageup",
-        run: () => applySelection(stepHits(rows(), sel(), -PAGE_HITS)),
+        run: () => {
+          if (view() === "replay") {
+            void loadMore("before");
+            return;
+          }
+          applySelection(stepHits(rows(), sel(), -PAGE_HITS));
+        },
       },
       {
         id: "fine.search.page.down",
-        title: "全文检索：下十条",
+        title: "全文检索：下十条/加载更后",
         bind: "pagedown",
-        run: () => applySelection(stepHits(rows(), sel(), PAGE_HITS)),
+        run: () => {
+          if (view() === "replay") {
+            void loadMore("after");
+            return;
+          }
+          applySelection(stepHits(rows(), sel(), PAGE_HITS));
+        },
+      },
+      {
+        id: "fine.search.view",
+        title: "全文检索：预览/回放切换",
+        bind: "tab",
+        run: () => toggleView(),
+      },
+      {
+        id: "fine.search.expand",
+        title: "全文检索：展开命中条全文",
+        bind: "ctrl+j",
+        run: () => void expandAnchor(),
+      },
+      {
+        id: "fine.search.thinking",
+        title: "全文检索：思考显隐",
+        bind: "ctrl+t",
+        run: () => setShowReasoning((on) => !on),
       },
       {
         id: "fine.search.filter",
@@ -322,6 +524,26 @@ function SearchDialog(props: SearchDialogProps) {
     return <text content={styled} />;
   }
 
+  function renderReplayLine(line: ReplayLine) {
+    const color =
+      line.tone === "head"
+        ? line.hit
+          ? accent
+          : theme.text.faint
+        : line.tone === "body"
+          ? line.hit
+            ? base
+            : theme.text.muted
+          : theme.text.faint;
+    return <text fg={color}>{line.text}</text>;
+  }
+
+  const replayProgress = createMemo(() => {
+    const loaded = streamItems().length;
+    if (streamTotal() === 0) return "0 / 0";
+    return `已载 ${streamOffset() + 1}–${streamOffset() + loaded} / 共 ${streamTotal()}`;
+  });
+
   const selectedSegment = createMemo(() => {
     const hit = selectedHit();
     return hit ? `${timeLabel(hit.ts)} ${kindLabel(hit.kind)} · ${flatten(hit.title)}` : "";
@@ -363,38 +585,71 @@ function SearchDialog(props: SearchDialogProps) {
           </Show>
         </box>
         <box width="60%" flexDirection="column">
-          <Show when={previewState() === "idle"}>
-            <text fg={theme.text.faint}>↑↓ 选择命中查看预览。</text>
-          </Show>
-          <Show when={previewState() === "loading"}>
-            <text fg={theme.text.muted}>预览加载中…</text>
-          </Show>
-          <Show when={previewState() === "error"}>
-            <text fg={theme.text.muted}>预览失败：{previewError()}</text>
-          </Show>
-          <Show when={previewState() === "ready" && segment()}>
-            <text fg={theme.text.base}>{selectedSegment()}</text>
-            <text fg={theme.text.faint}>
-              {summary() ? `${summary()!.project}` : projectName(segment()?.directory ?? "")}
-            </text>
-            <Show when={summary()}>
-              <For each={clipLines(summary()!.doing, PREVIEW_WIDTH, 3)}>
-                {(line) => <text fg={theme.text.muted}>当时在做 {line}</text>}
-              </For>
-              <For each={clipLines(summary()!.solved, PREVIEW_WIDTH, 3)}>
-                {(line) => <text fg={theme.text.muted}>解决 {line}</text>}
-              </For>
-              <text fg={theme.text.faint}>
-                来源 {sourceLabel(summary()!.source)} · 共 {summary()!.sessionCount} 会话
-              </text>
+          <Show when={view() === "preview"}>
+            <Show when={previewState() === "idle"}>
+              <text fg={theme.text.faint}>↑↓ 选择命中查看预览。</text>
             </Show>
-            <text fg={theme.text.faint}>原文（前 {PREVIEW_LINES} 行）：</text>
-            <For each={preview().lines}>{(line) => renderPreviewLine(line)}</For>
+            <Show when={previewState() === "loading"}>
+              <text fg={theme.text.muted}>预览加载中…</text>
+            </Show>
+            <Show when={previewState() === "error"}>
+              <text fg={theme.text.muted}>预览失败：{previewError()}</text>
+            </Show>
+            <Show when={previewState() === "ready" && segment()}>
+              <text fg={theme.text.base}>{selectedSegment()}</text>
+              <text fg={theme.text.faint}>
+                {summary() ? `${summary()!.project}` : projectName(segment()?.directory ?? "")}
+              </text>
+              <Show when={summary()}>
+                <For each={clipLines(summary()!.doing, PREVIEW_WIDTH, 3)}>
+                  {(line) => <text fg={theme.text.muted}>当时在做 {line}</text>}
+                </For>
+                <For each={clipLines(summary()!.solved, PREVIEW_WIDTH, 3)}>
+                  {(line) => <text fg={theme.text.muted}>解决 {line}</text>}
+                </For>
+                <text fg={theme.text.faint}>
+                  来源 {sourceLabel(summary()!.source)} · 共 {summary()!.sessionCount} 会话
+                </text>
+              </Show>
+              <text fg={theme.text.faint}>原文（前 {PREVIEW_LINES} 行）：</text>
+              <For each={preview().lines}>{(line) => renderPreviewLine(line)}</For>
+            </Show>
+          </Show>
+          <Show when={view() === "replay"}>
+            <text fg={theme.text.faint}>
+              只读回放 · {replayTitle()} · {replayProgress()}
+            </text>
+            <Show when={streamState() === "loading"}>
+              <text fg={theme.text.muted}>回放加载中…</text>
+            </Show>
+            <Show when={streamState() === "error"}>
+              <text fg={theme.text.muted}>回放失败：{streamError()}（↑↓ 重选命中可重试）</text>
+            </Show>
+            <Show when={streamState() === "ready" && replayRowsMemo().length === 0}>
+              <text fg={theme.text.faint}>这个会话没有可回放的片段。</text>
+            </Show>
+            <Show when={streamState() === "ready" && replayRowsMemo().length > 0}>
+              <Show when={streamError()}>
+                <text fg={theme.text.muted}>分页失败：{streamError()}（可再次 PgUp/PgDn 重试）</text>
+              </Show>
+              <Show when={streamBusy() === "before"}>
+                <text fg={theme.text.muted}>加载更早…</text>
+              </Show>
+              <For each={replayWindow()}>{(line) => renderReplayLine(line)}</For>
+              <Show when={streamBusy() === "after"}>
+                <text fg={theme.text.muted}>加载更后…</text>
+              </Show>
+              <Show when={streamBusy() !== "before" && streamHasMore()}>
+                <text fg={theme.text.faint}>（PgDn 继续加载）</text>
+              </Show>
+            </Show>
           </Show>
         </box>
       </box>
       <text fg={theme.text.faint}>
-        ↑↓ 选择 · PgUp/PgDn 十条一跳 · Ctrl+O 筛选（{FILTERS.map((f) => f.label).join("/")}）· Esc 关闭
+        {view() === "replay"
+          ? "↑↓ 滚动 · PgUp/PgDn 更早/更后 · Ctrl+T 思考显隐 · Ctrl+J 展开命中 · Tab 回预览 · Esc 关闭"
+          : `↑↓ 选择 · PgUp/PgDn 十条一跳 · Ctrl+O 筛选（${FILTERS.map((f) => f.label).join("/")}）· Tab 回放 · Esc 关闭`}
       </text>
     </box>
   );
