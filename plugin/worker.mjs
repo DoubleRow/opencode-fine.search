@@ -32,6 +32,7 @@ import {
   replaceIndexMessage,
   saveSummary,
   searchSegments,
+  sessionStream,
   setMeta,
   upsertSession,
 } from "../lib/index-db.mjs";
@@ -308,6 +309,30 @@ function doSearch(params = {}) {
   });
 }
 
+function doStream(params = {}) {
+  ensureFresh();
+  const db = getIndex();
+  const sessionId = String(params.sessionId ?? "").trim();
+  if (!sessionId) {
+    const error = new Error("sessionId 无效");
+    error.code = "not_found";
+    throw error;
+  }
+
+  const result = sessionStream(db, sessionId, {
+    offset: params.offset,
+    limit: params.limit,
+    anchorSegmentId: params.anchorSegmentId,
+    maxChars: params.maxChars,
+  });
+  if (!result) {
+    const error = new Error(`会话不在索引中: ${sessionId}`);
+    error.code = "not_found";
+    throw error;
+  }
+  return result;
+}
+
 function doRead(params = {}) {
   const db = getIndex();
   const segmentId = Number(params.segmentId);
@@ -424,6 +449,7 @@ const USAGE = `用法:
   node plugin/worker.mjs search <关键词...> [选项]
   node plugin/worker.mjs read <segmentId> [--json]
   node plugin/worker.mjs summary <sessionId> [--json]
+  node plugin/worker.mjs stream <sessionId> [--limit N] [--anchor N] [--json]
   node plugin/worker.mjs --serve
 
 search 选项:
@@ -454,6 +480,13 @@ function parseArgs(argv) {
     else if (arg === "--include-reasoning") opts.includeReasoning = true;
     else if (arg === "--no-tools") opts.includeTools = false;
     else if (arg === "--no-color") opts.color = false;
+    else if (arg === "--anchor") {
+      const value = Number(argv[++i]);
+      if (!Number.isInteger(value) || value <= 0) {
+        throw new Error("--anchor 需要一个正整数片段 id");
+      }
+      opts.anchor = value;
+    }
     else if (arg === "--limit") {
       const value = Number(argv[++i]);
       if (!Number.isInteger(value) || value <= 0) {
@@ -596,6 +629,33 @@ async function runCli(argv) {
     return 0;
   }
 
+  if (command === "stream") {
+    const sessionId = positional[0];
+    if (!sessionId) {
+      process.stderr.write(`stream 需要 sessionId\n\n${USAGE}`);
+      return 2;
+    }
+    const result = doStream({
+      sessionId,
+      limit: opts.limit,
+      anchorSegmentId: opts.anchor,
+    });
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        `${result.title || "(无标题会话)"} · 共 ${result.total} 条片段，本页 ${result.offset + 1}-${result.offset + result.items.length}` +
+          (result.anchorIndex >= 0 ? ` · 命中下标 ${result.anchorIndex}` : "") +
+          `\n`,
+      );
+      for (const item of result.items) {
+        const text = item.text.replace(/\s+/g, " ").slice(0, 80);
+        process.stdout.write(`  ${String(item.segmentId).padStart(6)}  ${KIND_LABEL[item.kind] || item.kind}  ${text}\n`);
+      }
+    }
+    return 0;
+  }
+
   if (command === "read") {
     const id = positional[0];
     if (!id) {
@@ -637,6 +697,8 @@ async function handleRequest(request) {
       return doSearch(params);
     case "summary":
       return doSummary(params);
+    case "stream":
+      return doStream(params);
     case "read": {
       const result = doRead(params);
       if (!result) {

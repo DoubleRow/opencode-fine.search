@@ -129,6 +129,82 @@ export const SearchRpc = Rpc.define({
         },
       },
     },
+    stream: {
+      input: {
+        type: "object",
+        properties: {
+          sessionId: { type: "string" },
+          offset: { type: "integer" },
+          limit: { type: "integer" },
+          anchorSegmentId: { type: "integer" },
+          maxChars: { type: "integer" },
+        },
+        required: ["sessionId"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: {
+          sessionId: { type: "string" },
+          title: { type: "string" },
+          directory: { type: "string" },
+          total: { type: "integer" },
+          anchorIndex: { type: "integer" },
+          offset: { type: "integer" },
+          hasMore: { type: "boolean" },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                segmentId: { type: "integer" },
+                messageId: { type: "string" },
+                kind: { type: "string" },
+                ts: { type: "integer" },
+                text: { type: "string" },
+                truncated: { type: "boolean" },
+                length: { type: "integer" },
+              },
+              required: [
+                "segmentId",
+                "messageId",
+                "kind",
+                "ts",
+                "text",
+                "truncated",
+                "length",
+              ],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: [
+          "sessionId",
+          "title",
+          "directory",
+          "total",
+          "anchorIndex",
+          "offset",
+          "hasMore",
+          "items",
+        ],
+        additionalProperties: false,
+      },
+      errors: {
+        not_found: {
+          type: "object",
+          properties: { sessionId: { type: "string" } },
+          required: ["sessionId"],
+          additionalProperties: false,
+        },
+        index_error: {
+          type: "object",
+          properties: { message: { type: "string" } },
+          required: ["message"],
+          additionalProperties: false,
+        },
+      },
+    },
     summary: {
       input: {
         type: "object",
@@ -259,4 +335,24 @@ export interface StatusOutput {
   lastSyncAt: number;
   sourceMtime: number;
   error: string;
+}
+export interface StreamItem {
+  segmentId: number;
+  messageId: string;
+  kind: string;
+  ts: number;
+  text: string;
+  truncated: boolean;
+  length: number;
+}
+
+export interface StreamOutput {
+  sessionId: string;
+  title: string;
+  directory: string;
+  total: number;
+  anchorIndex: number;
+  offset: number;
+  hasMore: boolean;
+  items: StreamItem[];
 }
