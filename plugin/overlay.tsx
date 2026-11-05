@@ -195,9 +195,10 @@ export interface SearchOverlayProps {
   ctx: Context;
   open: () => boolean;
   onClose: () => void;
-  onOpen: (item: SearchOutputItem) => void;
   /** 选中项变化：驱动右侧详情栏。 */
   onSelect: (item: SearchOutputItem, query: string) => void;
+  /** Enter / 点击结果：第一次展开侧栏流水，第二次打开标签页。 */
+  onEnter: (item: SearchOutputItem, query: string) => "open" | "stream";
   /** 详情栏是否真的显示在屏幕上：收起侧栏时它还在 DOM 里，但宽度不能算数。 */
   panelVisible: () => boolean;
 }
@@ -233,9 +234,8 @@ export function SearchOverlay(props: SearchOverlayProps) {
     return shown === total ? `${shown} 条` : `${shown} / ${total} 条`;
   });
 
-  function openItem(item: SearchOutputItem) {
-    props.onOpen(item);
-    props.onClose();
+  function activate(item: SearchOutputItem) {
+    if (props.onEnter(item, query().trim()) === "open") props.onClose();
   }
 
   function move(delta: number) {
@@ -318,7 +318,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
       event.preventDefault();
       event.stopPropagation();
       const item = current();
-      if (item) openItem(item);
+      if (item) activate(item);
     }
   }
 
@@ -549,7 +549,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
                       onMouseEnter={() => setActive(index())}
                       onClick={() => {
                         setActive(index());
-                        openItem(item);
+                        activate(item);
                       }}
                     >
                       <span class="top">

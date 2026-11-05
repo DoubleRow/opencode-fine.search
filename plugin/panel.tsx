@@ -24,6 +24,7 @@ import {
   termsOf,
   type DetailSelection,
 } from "./panel-model";
+import { StreamView } from "./stream";
 import {
   SearchRpc,
   type ReadOutput,
@@ -120,6 +121,10 @@ interface DetailPanelProps {
   onIndex: (index: number) => void;
   /** 打开命中项所属的真实会话。 */
   onOpen: (item: SearchOutputItem) => void;
+  /** 是否展示整段会话流水（只读回放）。 */
+  streaming: () => boolean;
+  /** 从流水退回预览。 */
+  onExitStream: () => void;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -317,8 +322,11 @@ export function DetailPanel(props: DetailPanelProps) {
         }
       >
         {(current) => (
-          <>
-            <div class="oc-detail-body">
+          <Show
+            when={props.streaming()}
+            fallback={
+              <>
+                <div class="oc-detail-body">
               <div class="oc-detail-meta">
                 <span class="oc-detail-project">
                   <span class="sq" />
@@ -386,21 +394,33 @@ export function DetailPanel(props: DetailPanelProps) {
               />
             </div>
 
-            <div class="oc-detail-foot">
-              <props.ctx.ui.Button variant="contrast" size="small" onClick={openSession}>
-                打开会话
-              </props.ctx.ui.Button>
-              <props.ctx.ui.Button
-                variant="neutral"
-                size="small"
-                disabled={!text()}
-                onClick={() => void copyText()}
-              >
-                复制原文
-              </props.ctx.ui.Button>
-              <span class="oc-detail-hint">{busy() ? "加载中…" : "Esc 关闭"}</span>
-            </div>
-          </>
+                <div class="oc-detail-foot">
+                  <props.ctx.ui.Button variant="contrast" size="small" onClick={openSession}>
+                    打开会话
+                  </props.ctx.ui.Button>
+                  <props.ctx.ui.Button
+                    variant="neutral"
+                    size="small"
+                    disabled={!text()}
+                    onClick={() => void copyText()}
+                  >
+                    复制原文
+                  </props.ctx.ui.Button>
+                  <span class="oc-detail-hint">{busy() ? "加载中…" : "Esc 关闭"}</span>
+                </div>
+              </>
+            }
+          >
+            <StreamView
+              ctx={props.ctx}
+              sessionId={current().sessionId}
+              anchorSegmentId={current().segmentId}
+              query={props.selection()?.query ?? ""}
+              isCurrent={current().sessionId === props.session.id}
+              onOpenSession={openSession}
+              onExit={props.onExitStream}
+            />
+          </Show>
         )}
       </Show>
     </div>

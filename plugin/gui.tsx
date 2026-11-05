@@ -22,6 +22,7 @@ import { createStore } from "solid-js/store";
 import { DETAIL_PARTS_CSS } from "./detail-parts";
 import { HEADER_ENTRY_CSS, HeaderSearchButton } from "./header-entry";
 import { OVERLAY_CSS, SearchOverlay } from "./overlay";
+import { STREAM_CSS } from "./stream";
 import { DETAIL_CSS, DETAIL_KEY_ID, DetailPanel } from "./panel";
 import {
   groupHitsBySession,
@@ -95,6 +96,8 @@ export default Plugin.define({
     const [selection, setSelection] = createStore<Record<string, DetailSelection>>({});
     const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const [overlayOpen, setOverlayOpen] = createSignal(false);
+    /** 侧栏当前是否在「整段流水」模式，键为 `会话id:片段id`。 */
+    const [streamKey, setStreamKey] = createSignal<string | null>(null);
 
     /** 搜索命中项的会话属于哪个 server：已开标签页优先，其次本机 builtin。 */
     function serverForSession(sessionId: string): string | undefined {
@@ -137,6 +140,7 @@ export default Plugin.define({
     function showDetail(item: SearchOutputItem, query: string) {
       const host = ctx.sessions.current();
       if (!host) return;
+      setStreamKey(null);
       setSelection(host.id, selectionFor(query, item));
       if (ctx.layout.state(panelKey, host) !== "visible") {
         ctx.layout.open(panelKey, host, { tab: "select" });
@@ -211,12 +215,36 @@ export default Plugin.define({
       ctx.layout.open(panelKey, current, { tab: "select" });
     });
 
+    /**
+     * 浮层里按 Enter / 点结果：
+     * 第一次在侧栏展开整段流水，第二次（面板已可见且是同一个片段）才打开标签页。
+     */
+    function enterResult(item: SearchOutputItem, query: string): "open" | "stream" {
+      const host = ctx.sessions.current();
+      if (!host) {
+        openResult(item);
+        return "open";
+      }
+
+      const key = `${host.id}:${item.segmentId}`;
+      const visible = ctx.layout.state(panelKey, host) === "visible";
+      if (visible && streamKey() === key) {
+        openResult(item);
+        return "open";
+      }
+
+      showDetail(item, query);
+      setStreamKey(key);
+      return "stream";
+    }
+
     ctx.add(Style, DETAIL_PARTS_CSS);
     ctx.add(Style, DETAIL_CSS);
 
     // ---- 非模态搜索浮层：标题行入口 + window.bottom 常驻挂载 ----
     ctx.add(Style, HEADER_ENTRY_CSS);
     ctx.add(Style, OVERLAY_CSS);
+    ctx.add(Style, STREAM_CSS);
     ctx.add(Slot, {
       at: "session.header",
       order: -1,
@@ -235,8 +263,8 @@ export default Plugin.define({
           ctx={ctx}
           open={overlayOpen}
           onClose={() => setOverlayOpen(false)}
-          onOpen={openResult}
           onSelect={showDetail}
+          onEnter={enterResult}
           panelVisible={panelVisible}
         />
       ),
@@ -262,6 +290,11 @@ export default Plugin.define({
           selection={() => selection[props.session.id]}
           onIndex={(index) => setSelection(props.session.id, "index", index)}
           onOpen={openResult}
+          streaming={() => {
+            const hit = selection[props.session.id]?.hits[0];
+            return !!hit && streamKey() === `${props.session.id}:${hit.segmentId}`;
+          }}
+          onExitStream={() => setStreamKey(null)}
         />
       ),
     });
