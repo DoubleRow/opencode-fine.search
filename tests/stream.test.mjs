@@ -28,7 +28,7 @@ function seed(db) {
   upsertSession(db, {
     id: "ses_stream",
     title: "流水测试",
-    directory: "/home/row/project",
+    directory: "/workspace/project",
     time_created: 1_700_000_000_000,
     time_updated: 1_700_000_000_000,
   });

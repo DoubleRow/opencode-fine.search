@@ -71,7 +71,7 @@ const item = (overrides = {}) => ({
   kind: "assistant",
   ts: Date.now(),
   title: "方案调研",
-  directory: "/home/row/文档/opencode项目/opencode-fine.search",
+  directory: "/workspace/opencode-fine.search",
   snippet: "使用 FTS5 trigram 建立索引",
   matchStart: 10,
   matchEnd: 16,
@@ -97,7 +97,7 @@ test("dayLabel 今天/昨天/月日/年月日", () => {
 });
 
 test("projectName 取末段目录", () => {
-  assert.equal(projectName("/home/row/文档/opencode项目/demo"), "demo");
+  assert.equal(projectName("/workspace/demo"), "demo");
   assert.equal(projectName("C:\\projects\\demo\\"), "demo");
   assert.equal(projectName(""), "未知项目");
 });

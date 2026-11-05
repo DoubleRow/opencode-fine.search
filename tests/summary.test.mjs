@@ -21,8 +21,8 @@ import {
 } from "../lib/summary.mjs";
 
 test("projectName 兼容 Unix / Windows 路径", () => {
-  assert.equal(projectName("/home/row/文档/opencode项目/opencode-fine.search"), "opencode-fine.search");
-  assert.equal(projectName("C:\\Users\\row\\project\\"), "project");
+  assert.equal(projectName("/workspace/opencode-fine.search"), "opencode-fine.search");
+  assert.equal(projectName("C:\\Users\\demo\\project\\"), "project");
   assert.equal(projectName(""), "(未知项目)");
 });
 

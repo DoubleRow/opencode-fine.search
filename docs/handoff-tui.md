@@ -160,7 +160,7 @@ docs/plan-tui-search.md 实现记录
 ### 3.5 验收
 
 ```bash
-cd "/home/row/文档/opencode项目/opencode-fine.search"
+cd /path/to/opencode-fine.search
 pnpm typecheck
 pnpm lint
 pnpm test

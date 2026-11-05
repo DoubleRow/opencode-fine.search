@@ -30,14 +30,14 @@ function seed(db) {
   upsertSession(db, {
     id: "ses_a",
     title: "连接池讨论",
-    directory: "/home/row/project",
+    directory: "/workspace/project",
     time_created: 1_700_000_000_000,
     time_updated: 1_700_000_000_000,
   });
   upsertSession(db, {
     id: "ses_b",
     title: "向量检索",
-    directory: "/home/row/other",
+    directory: "/workspace/other",
     time_created: 1_700_000_100_000,
     time_updated: 1_700_000_100_000,
   });
