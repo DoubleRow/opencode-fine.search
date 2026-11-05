@@ -24,6 +24,7 @@ import { Highlight, errorText, type LoadState } from "./detail-parts";
 import { formatWhen, kindLabel, termsOf } from "./panel-model";
 import {
   FILTERS,
+  cardBox,
   clampIndex,
   filterItems,
   filterLabel,
@@ -60,10 +61,11 @@ export const OVERLAY_CSS = `
 .oc-overlay-card {
   position: absolute;
   top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(720px, calc(100vw - 96px));
-  max-height: min(78vh, 780px);
+  left: var(--oc-card-left, 50%);
+  transform: var(--oc-card-shift, translateX(-50%));
+  width: var(--oc-card-width, min(720px, calc(100vw - 96px)));
+  max-width: calc(100vw - 24px);
+  max-height: min(74vh, 760px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -199,9 +201,11 @@ export function SearchOverlay(props: SearchOverlayProps) {
   const [searchState, setSearchState] = createSignal<LoadState>("idle");
   const [searchError, setSearchError] = createSignal("");
   const [active, setActive] = createSignal(0);
+  const [box, setBox] = createSignal<{ left: number; width: number } | null>(null);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
+  let measureTimer: ReturnType<typeof setInterval> | undefined;
   let searchToken = 0;
   let inputEl: HTMLInputElement | undefined;
 
@@ -227,6 +231,42 @@ export function SearchOverlay(props: SearchOverlayProps) {
     const count = results().length;
     if (count < 1) return;
     setActive(stepIndex(activeIndex(), delta, count));
+  }
+
+  /**
+   * 量出「时间线左边界 → 详情栏左边界」的可用宽度，把卡片放进去。
+   *
+   * 左侧栏没有 DOM 契约，所以从标题行入口往上找第一个占宽超过视口 40% 的祖先，
+   * 它的左边界就是时间线起点；找不到就退回整窗居中。详情栏用我们自己的
+   * `.oc-detail` 量，面板开合 / 窗口缩放都会重算。
+   */
+  function measureCard() {
+    if (typeof window === "undefined" || !props.open()) return;
+    const viewportWidth = window.innerWidth;
+
+    const panel = document.querySelector<HTMLElement>(".oc-detail");
+    const panelWidth = panel ? panel.getBoundingClientRect().width : 0;
+
+    // 缓存的会话时间线也会渲染标题行入口，只认当前在视口里的那个。
+    const entries = Array.from(document.querySelectorAll<HTMLElement>(".oc-search-entry"));
+    const visibleEntry =
+      entries.find((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+      }) ?? entries[0];
+
+    let contentLeft = 0;
+    let node: HTMLElement | null = visibleEntry ?? null;
+    for (let depth = 0; depth < 8 && node; depth += 1) {
+      const rect = node.getBoundingClientRect();
+      if (rect.left > 4 && rect.width > viewportWidth * 0.4 && rect.width <= viewportWidth) {
+        contentLeft = rect.left;
+        break;
+      }
+      node = node.parentElement;
+    }
+
+    setBox(cardBox({ viewportWidth, panelWidth, contentLeft }));
   }
 
   function onInputKeyDown(event: KeyboardEvent) {
@@ -293,10 +333,11 @@ export function SearchOverlay(props: SearchOverlayProps) {
         clearTimeout(selectTimer);
         const item = current();
         if (!item) return;
-        selectTimer = setTimeout(
-          () => props.onSelect(item, query().trim()),
-          SELECT_DEBOUNCE_MS,
-        );
+        selectTimer = setTimeout(() => {
+          props.onSelect(item, query().trim());
+          // 面板可能刚被打开或改变宽度，下一帧再量一次。
+          setTimeout(measureCard, 80);
+        }, SELECT_DEBOUNCE_MS);
       },
     ),
   );
@@ -335,12 +376,27 @@ export function SearchOverlay(props: SearchOverlayProps) {
       }
     };
     document.addEventListener("keydown", onKey, true);
-    onCleanup(() => document.removeEventListener("keydown", onKey, true));
+    window.addEventListener("resize", measureCard);
+    onCleanup(() => {
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", measureCard);
+    });
   });
+
+  // 打开期间持续跟随布局（面板开合、拖宽、窗口缩放）。
+  createEffect(
+    on(() => props.open(), (value) => {
+      clearInterval(measureTimer);
+      if (!value) return;
+      requestAnimationFrame(measureCard);
+      measureTimer = setInterval(measureCard, 400);
+    }),
+  );
 
   onCleanup(() => {
     clearTimeout(searchTimer);
     clearTimeout(selectTimer);
+    clearInterval(measureTimer);
   });
 
   const emptyText = createMemo(() => {
@@ -352,7 +408,19 @@ export function SearchOverlay(props: SearchOverlayProps) {
   });
 
   return (
-    <div class="oc-overlay" data-open={props.open() ? "true" : "false"}>
+    <div
+      class="oc-overlay"
+      data-open={props.open() ? "true" : "false"}
+      style={
+        box()
+          ? {
+              "--oc-card-left": `${box()!.left}px`,
+              "--oc-card-width": `${box()!.width}px`,
+              "--oc-card-shift": "none",
+            }
+          : undefined
+      }
+    >
       <div class="oc-overlay-scrim" onClick={props.onClose} />
 
       <div class="oc-overlay-card" role="dialog" aria-label="搜索全部会话">

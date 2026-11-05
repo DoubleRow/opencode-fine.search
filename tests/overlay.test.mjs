@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   FILTERS,
+  cardBox,
   clampIndex,
   filterItems,
   filterLabel,
@@ -73,4 +74,27 @@ test("↑↓ 在结果上循环移动", () => {
   assert.equal(stepIndex(5, 1, 3), 0);
   assert.equal(stepIndex(1, 0, 3), 1);
   assert.equal(stepIndex(0, 1, 0), 0);
+});
+test("浮层卡片避开右侧详情栏", () => {
+  // 1440 宽、左栏到 260、详情栏 400：卡片落在 260–1040 之间。
+  const docked = cardBox({ viewportWidth: 1440, panelWidth: 400, contentLeft: 260 });
+  assert.equal(docked.width, 720);
+  assert.equal(docked.left, 290);
+  assert.ok(docked.left + docked.width <= 1440 - 400);
+
+  // 面板关掉：可用宽度变大，卡片仍在时间线内居中。
+  const free = cardBox({ viewportWidth: 1440, panelWidth: 0, contentLeft: 260 });
+  assert.equal(free.width, 720);
+  assert.equal(free.left, 490);
+
+  // 窄窗：卡片收窄，右边界不越过面板。
+  const narrow = cardBox({ viewportWidth: 1000, panelWidth: 400, contentLeft: 260 });
+  assert.equal(narrow.width, 308);
+  assert.ok(narrow.left + narrow.width <= 600);
+});
+
+test("浮层卡片在极端窄窗下不跑出视口", () => {
+  const box = cardBox({ viewportWidth: 600, panelWidth: 300, contentLeft: 200 });
+  assert.ok(box.left >= 8);
+  assert.ok(box.left + box.width <= 600 - 8);
 });

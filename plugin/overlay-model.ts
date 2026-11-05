@@ -35,6 +35,34 @@ export function filterItems(
 }
 
 /** 把索引夹到 [0, count-1]；空列表返回 0。 */
+export interface CardBoxInput {
+  viewportWidth: number;
+  /** 右侧详情栏宽度；0 表示没开。 */
+  panelWidth: number;
+  /** 时间线左边界（左侧会话栏之后）。 */
+  contentLeft: number;
+  gap?: number;
+  maxWidth?: number;
+}
+
+/**
+ * 浮层卡片的落位：在「时间线左边界 → 详情栏左边界」之间居中，
+ * 宽度不超过 720px，也不越过两侧。
+ */
+export function cardBox(input: CardBoxInput): { left: number; width: number } {
+  const viewport = Math.max(320, Math.round(input.viewportWidth) || 0);
+  const panel = Math.max(0, Math.min(Math.round(input.panelWidth) || 0, viewport - 240));
+  const contentLeft = Math.max(0, Math.min(Math.round(input.contentLeft) || 0, viewport - 240));
+  const gap = Math.max(0, Number(input.gap) || 16);
+  const maxWidth = Math.max(240, Number(input.maxWidth) || 720);
+
+  const available = Math.max(160, viewport - panel - contentLeft);
+  const width = Math.max(200, Math.min(maxWidth, available - gap * 2, viewport - 16));
+  const centered = Math.round(contentLeft + (available - width) / 2);
+  const left = Math.max(8, Math.min(centered, viewport - width - 8));
+  return { left, width };
+}
+
 export function clampIndex(index: number, count: number): number {
   if (count <= 0) return 0;
   const value = Math.trunc(Number(index) || 0);
