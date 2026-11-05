@@ -292,7 +292,11 @@ export function DetailPanel(props: DetailPanelProps) {
     <div class="oc-detail">
       <div class="oc-detail-head">
         <span class="title">全文检索 · 详情</span>
-        <span class="count">第 {index() + 1} / 共 {total()} 条</span>
+        <Show when={total() > 1}>
+          <span class="count">
+            第 {index() + 1} / 共 {total()} 条
+          </span>
+        </Show>
         <button class="x" type="button" aria-label="关闭详情面板" onClick={close}>
           ✕
         </button>
@@ -349,9 +353,11 @@ export function DetailPanel(props: DetailPanelProps) {
                 onToggle={() => setExpanded((value) => !value)}
                 onRetry={() => void loadText()}
                 navStart={
-                  <span>
-                    片段 {index() + 1} / {total()}
-                  </span>
+                  <Show when={total() > 1}>
+                    <span>
+                      片段 {index() + 1} / {total()}
+                    </span>
+                  </Show>
                 }
                 navEnd={
                   <>

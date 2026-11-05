@@ -4,9 +4,8 @@
  * 挂在 `window.bottom` 插槽，用 `position: fixed` 脱离布局：
  * - 无 scrim 压黑，主界面与侧边栏保持可见；
  * - 透明遮罩只负责「点外面关闭」；
- * - ↑↓ / 悬停切换结果并即时预览，Enter 打开会话，Esc 只关浮层。
- *
- * 摘要与原文渲染复用 ./detail-parts，规则来自 ./panel-model。
+ * - 浮层只放搜索框与结果列表；↑↓ / 悬停经 onSelect 驱动右侧详情栏，
+ *   Enter 打开会话，Esc 只关浮层。
  */
 
 import {
@@ -21,7 +20,7 @@ import {
 } from "solid-js";
 import type { Context } from "@opencode/plugin/gui";
 
-import { Highlight, SummaryBlock, TextBlock, errorText, type LoadState } from "./detail-parts";
+import { Highlight, errorText, type LoadState } from "./detail-parts";
 import { formatWhen, kindLabel, termsOf } from "./panel-model";
 import {
   FILTERS,
@@ -33,10 +32,8 @@ import {
 } from "./overlay-model";
 import {
   SearchRpc,
-  type ReadOutput,
   type SearchOutput,
   type SearchOutputItem,
-  type SummaryOutput,
 } from "./rpc";
 
 export const OVERLAY_CSS = `
@@ -180,50 +177,11 @@ export const OVERLAY_CSS = `
   padding: 0 1px;
 }
 .oc-overlay-empty { padding: 18px 12px; color: var(--oc-muted); font-size: 12px; line-height: 1.8; }
-.oc-overlay-preview {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 52%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--oc-line);
-  overflow: hidden;
-}
-.oc-overlay-meta { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.oc-overlay-project {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 70%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 8px;
-  border: 1px solid var(--oc-line);
-  border-radius: 6px;
-  background: var(--oc-panel);
-  color: var(--oc-muted);
-  font-size: 11px;
-}
-.oc-overlay-project .sq {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex: 0 0 auto;
-  background: var(--oc-accent);
-  opacity: .85;
-}
-.oc-overlay-when { margin-left: auto; color: var(--oc-faint); font-size: 11px; white-space: nowrap; }
-.oc-overlay-preview .oc-detail-context { max-height: 150px; }
-.oc-overlay-preview .oc-detail-hit-wrap { min-height: 0; }
 `;
 
 const SEARCH_LIMIT = 100;
 const SEARCH_DEBOUNCE_MS = 100;
-const PREVIEW_DEBOUNCE_MS = 120;
-const SUMMARY_CACHE_MAX = 80;
+const SELECT_DEBOUNCE_MS = 120;
 
 export interface SearchOverlayProps {
   ctx: Context;
@@ -234,11 +192,6 @@ export interface SearchOverlayProps {
   onSelect: (item: SearchOutputItem, query: string) => void;
 }
 
-function baseName(directory: string): string {
-  const value = String(directory || "").replace(/[\\/]+$/, "");
-  return value.split(/[\\/]/).pop() || "(未知项目)";
-}
-
 export function SearchOverlay(props: SearchOverlayProps) {
   const [query, setQuery] = createSignal("");
   const [filter, setFilter] = createSignal<OverlayFilter>("all");
@@ -247,31 +200,15 @@ export function SearchOverlay(props: SearchOverlayProps) {
   const [searchError, setSearchError] = createSignal("");
   const [active, setActive] = createSignal(0);
 
-  const [summary, setSummary] = createSignal<SummaryOutput | null>(null);
-  const [summaryState, setSummaryState] = createSignal<LoadState>("idle");
-  const [summaryError, setSummaryError] = createSignal("");
-  const [text, setText] = createSignal("");
-  const [readState, setReadState] = createSignal<LoadState>("idle");
-  const [readError, setReadError] = createSignal("");
-  const [expanded, setExpanded] = createSignal(false);
-
-  const summaryCache = new Map<string, SummaryOutput>();
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  let previewTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
   let searchToken = 0;
-  let previewToken = 0;
   let inputEl: HTMLInputElement | undefined;
 
   const terms = createMemo(() => termsOf(query()));
   const results = createMemo(() => filterItems(raw(), filter()));
   const activeIndex = createMemo(() => clampIndex(active(), results().length));
   const current = createMemo(() => results()[activeIndex()]);
-
-  const project = createMemo(() => {
-    const value = summary()?.project;
-    return value || (current() ? baseName(current()!.directory) : "");
-  });
 
   const countText = createMemo(() => {
     if (!query().trim()) return "";
@@ -280,70 +217,6 @@ export function SearchOverlay(props: SearchOverlayProps) {
     if (searchState() === "loading" && total === 0) return "";
     return shown === total ? `${shown} 条` : `${shown} / ${total} 条`;
   });
-
-  function resetPreview() {
-    setText("");
-    setReadState("idle");
-    setReadError("");
-    setSummary(null);
-    setSummaryState("idle");
-    setSummaryError("");
-    setExpanded(false);
-  }
-
-  async function loadPreview(item: SearchOutputItem) {
-    const token = ++previewToken;
-    setText("");
-    setReadError("");
-    setReadState("loading");
-    setExpanded(false);
-
-    const cached = summaryCache.get(item.sessionId);
-    if (cached) {
-      setSummary(cached);
-      setSummaryState("ready");
-      setSummaryError("");
-    } else {
-      setSummary(null);
-      setSummaryState("loading");
-      setSummaryError("");
-    }
-
-    try {
-      const result = (await props.ctx.client.rpc(SearchRpc).read({
-        segmentId: item.segmentId,
-      })) as ReadOutput;
-      if (token !== previewToken) return;
-      if (!result || typeof result.text !== "string") throw new Error("原文加载失败");
-      setText(result.text);
-      setReadState("ready");
-    } catch (error) {
-      if (token !== previewToken) return;
-      setReadState("error");
-      setReadError(errorText(error) || "原文加载失败");
-    }
-
-    if (cached) return;
-
-    try {
-      const result = (await props.ctx.client.rpc(SearchRpc).summary({
-        sessionId: item.sessionId,
-      })) as SummaryOutput;
-      if (token !== previewToken) return;
-      if (!result || typeof result.source !== "string") throw new Error("摘要加载失败");
-      if (summaryCache.size >= SUMMARY_CACHE_MAX) {
-        const oldest = summaryCache.keys().next().value;
-        if (typeof oldest === "string") summaryCache.delete(oldest);
-      }
-      summaryCache.set(item.sessionId, result);
-      setSummary(result);
-      setSummaryState("ready");
-    } catch (error) {
-      if (token !== previewToken) return;
-      setSummaryState("error");
-      setSummaryError(errorText(error) || "摘要加载失败");
-    }
-  }
 
   function openItem(item: SearchOutputItem) {
     props.onOpen(item);
@@ -375,7 +248,6 @@ export function SearchOverlay(props: SearchOverlayProps) {
         setRaw([]);
         setSearchState("idle");
         setSearchError("");
-        resetPreview();
         return;
       }
 
@@ -413,22 +285,6 @@ export function SearchOverlay(props: SearchOverlayProps) {
     }),
   );
 
-  // 当前结果变化 → 120ms 后拉原文与摘要。
-  createEffect(
-    on(
-      () => current()?.segmentId,
-      () => {
-        clearTimeout(previewTimer);
-        const item = current();
-        if (!item) {
-          resetPreview();
-          return;
-        }
-        previewTimer = setTimeout(() => void loadPreview(item), PREVIEW_DEBOUNCE_MS);
-      },
-    ),
-  );
-
   // 选中项 / 查询词变化 → 120ms 后把命中项交给右侧详情栏。
   createEffect(
     on(
@@ -439,7 +295,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
         if (!item) return;
         selectTimer = setTimeout(
           () => props.onSelect(item, query().trim()),
-          PREVIEW_DEBOUNCE_MS,
+          SELECT_DEBOUNCE_MS,
         );
       },
     ),
@@ -484,7 +340,6 @@ export function SearchOverlay(props: SearchOverlayProps) {
 
   onCleanup(() => {
     clearTimeout(searchTimer);
-    clearTimeout(previewTimer);
     clearTimeout(selectTimer);
   });
 
@@ -546,7 +401,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
               <div class="oc-overlay-empty">
                 输入关键词，搜索全部会话正文。
                 <br />
-                ↑↓ 切换预览，Enter 打开会话，Esc 关闭。
+                ↑↓ 切换结果（右侧详情栏同步），Enter 打开会话，Esc 关闭。
               </div>
             }
           >
@@ -582,37 +437,6 @@ export function SearchOverlay(props: SearchOverlayProps) {
             </Show>
           </Show>
         </div>
-
-        <Show when={current()}>
-          {(item) => (
-            <div class="oc-overlay-preview">
-              <div class="oc-overlay-meta">
-                <span class="oc-overlay-project">
-                  <span class="sq" />
-                  {project()}
-                </span>
-                <span class="oc-overlay-when">{formatWhen(item().ts)}</span>
-              </div>
-
-              <SummaryBlock
-                summary={summary()}
-                state={summaryState()}
-                error={summaryError()}
-                onRetry={() => void loadPreview(item())}
-              />
-
-              <TextBlock
-                text={text()}
-                terms={terms()}
-                state={readState()}
-                error={readError()}
-                expanded={expanded()}
-                onToggle={() => setExpanded((value) => !value)}
-                onRetry={() => void loadPreview(item())}
-              />
-            </div>
-          )}
-        </Show>
       </div>
     </div>
   );
