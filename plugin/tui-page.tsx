@@ -58,8 +58,6 @@ export interface FineSearchPageProps {
   readonly initialQuery: string;
   /** Esc 返回的目标页面（进入搜索页之前的路由）。 */
   readonly returnTo: Route;
-  /** 为搜索页新建的标签（session.new 的惰性会话 id）；Esc 时关掉。 */
-  readonly searchTab?: string;
 }
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -460,24 +458,9 @@ export function FineSearchPage(props: FineSearchPageProps) {
     setView("preview");
   }
 
-  /** 回到路由：会话优先走标签页（开标签页模式下 router.navigate 不会切标签）。 */
-  function goTo(route: Route): void {
-    if (route.type === "session" && context.ui.tabs.enabled() && context.ui.tabs.focus(route.sessionID)) {
-      return;
-    }
-    context.ui.router.navigate(route);
-  }
-
-  /** 离开搜索页：先关掉为搜索新建的标签，再回到原页面。 */
+  /** 离开搜索页：页面占着当前标签，直接导航回进入前的路由。 */
   function leavePage(): void {
-    if (props.searchTab && context.ui.tabs.enabled()) {
-      try {
-        context.ui.tabs.close(props.searchTab);
-      } catch {
-        // 标签可能已被用户手动关闭，忽略后继续返回。
-      }
-    }
-    goTo(props.returnTo);
+    context.ui.router.navigate(props.returnTo);
   }
 
   function openSession(): void {
@@ -678,11 +661,10 @@ export function FineSearchPage(props: FineSearchPageProps) {
   });
 
   const footerHint = createMemo(() => {
-    const backHint = props.searchTab ? "Esc 关标签回原会话" : "Esc 返回";
     if (!layout().wide) {
-      return `↑↓ 移动 · PgUp/PgDn 翻页 · Tab 列表/摘要/回放 · Ctrl+O 筛选 · Enter 新标签打开 · ${backHint}`;
+      return "↑↓ 移动 · PgUp/PgDn 翻页 · Tab 列表/摘要/回放 · Ctrl+O 筛选 · Enter 打开 · Esc 返回";
     }
-    return `↑↓ 移动 · PgUp/PgDn 翻页 · Tab 摘要/回放 · Ctrl+O 筛选 · Ctrl+T 思考 · Ctrl+J 展开 · Enter 新标签打开 · ${backHint}`;
+    return "↑↓ 移动 · PgUp/PgDn 翻页 · Tab 摘要/回放 · Ctrl+O 筛选 · Ctrl+T 思考 · Ctrl+J 展开 · Enter 打开 · Esc 返回";
   });
 
   /** 各类型命中数（基于未筛选的结果，切换时才看得出差别）。 */
