@@ -43,6 +43,11 @@ export const STREAM_CSS = `
   color: var(--oc-s-text);
   background: var(--v2-background-bg-layer-01, #1c1c1c);
 }
+.oc-stream { user-select: text; -webkit-user-select: text; }
+.oc-stream-bar, .oc-stream-foot, .oc-stream-morebar, .oc-stream-think,
+.oc-stream-expand, .oc-stream-bar button, .oc-stream-foot button {
+  user-select: none; -webkit-user-select: none;
+}
 .oc-stream-bar {
   flex: 0 0 auto;
   display: flex;
