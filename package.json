@@ -1,7 +1,7 @@
 {
   "name": "opencode-fine.search",
-  "version": "0.0.0",
-  "description": "OpenCode 会话全文检索：GUI 插件 + 精确索引 + 语义 lane",
+  "version": "0.2.0",
+  "description": "OpenCode 会话全文检索：Desktop GUI + TUI 插件 + 旁路精确索引",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.11.2",
