@@ -1,9 +1,11 @@
 /**
  * oc-search GUI 入口。
  *
- * 1. 复用 OpenCode 自带的「会话搜索」对话框（mod+shift+f）与命令面板（mod+k）：
+ * 1. 标题行「全文」按钮 / ⌘⇧G 打开非模态搜索浮层（见 ./overlay）：
+ *    fixed 定位、不压黑主界面、选中即预览、Enter 打开会话。
+ * 2. 复用 OpenCode 自带的「会话搜索」对话框与命令面板：
  *    在标题搜索之外追加正文命中（见 ./palette-search）。
- * 2. 选中命中会话后，自动打开详情面板（见 ./panel）。
+ * 3. 命中会话后自动打开详情面板（见 ./panel）；浮层预览已内置同一套渲染。
  */
 
 import {
@@ -19,6 +21,8 @@ import { createEffect, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 
 import { DETAIL_PARTS_CSS } from "./detail-parts";
+import { HEADER_ENTRY_CSS, HeaderSearchButton } from "./header-entry";
+import { OVERLAY_CSS, SearchOverlay } from "./overlay";
 import { DETAIL_CSS, DETAIL_KEY_ID, DetailPanel } from "./panel";
 import {
   groupHitsBySession,
@@ -28,7 +32,6 @@ import {
 } from "./panel-model";
 import { installContentSearch } from "./palette-search";
 import { SearchRpc, type SearchOutputItem, type StatusOutput } from "./rpc";
-import { SPIKE_CSS, SpikeHeaderButton } from "./spike-p0";
 
 function describeStatus(status: StatusOutput): string {
   if (!status.ready) {
@@ -81,6 +84,33 @@ export default Plugin.define({
     const [pending, setPending] = createSignal<Map<string, PendingSelection>>(new Map());
     const [selection, setSelection] = createStore<Record<string, DetailSelection>>({});
     const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const [overlayOpen, setOverlayOpen] = createSignal(false);
+
+    /** 搜索命中项的会话属于哪个 server：已开标签页优先，其次本机 builtin。 */
+    function serverForSession(sessionId: string): string | undefined {
+      for (const tab of ctx.tabs.list()) {
+        if (tab.session?.id === sessionId) return tab.session.server.id;
+      }
+      const ids = ctx.servers.list();
+      const builtin = ids.find((id) => ctx.servers.get(id)?.builtin);
+      if (builtin) return builtin;
+      const local = ids.find((id) => ctx.servers.get(id)?.local);
+      if (local) return local;
+      return ctx.sessions.current()?.server.id ?? ids[0];
+    }
+
+    function openResult(item: SearchOutputItem) {
+      const server = serverForSession(item.sessionId);
+      if (!server) {
+        ctx.toast.show({
+          title: "无法打开会话",
+          description: "没有找到该会话所属的 server",
+          variant: "error",
+        });
+        return;
+      }
+      ctx.tabs.open({ server, id: item.sessionId }, { focus: true });
+    }
 
     function clearPendingTimer(sessionId: string) {
       const timer = pendingTimers.get(sessionId);
@@ -151,14 +181,31 @@ export default Plugin.define({
     ctx.add(Style, DETAIL_PARTS_CSS);
     ctx.add(Style, DETAIL_CSS);
 
-    // ---- 搜索入口占位：P1 起替换为正式浮层入口 ----
-    ctx.add(Style, SPIKE_CSS);
+    // ---- 非模态搜索浮层：标题行入口 + window.bottom 常驻挂载 ----
+    ctx.add(Style, HEADER_ENTRY_CSS);
+    ctx.add(Style, OVERLAY_CSS);
     ctx.add(Slot, {
       at: "session.header",
       order: -1,
-      render: () => <SpikeHeaderButton ctx={ctx} />,
+      render: () => (
+        <HeaderSearchButton
+          ctx={ctx}
+          open={overlayOpen}
+          onToggle={() => setOverlayOpen((value) => !value)}
+        />
+      ),
     });
-    // ---- 占位 end ----
+    ctx.add(Slot, {
+      at: "window.bottom",
+      render: () => (
+        <SearchOverlay
+          ctx={ctx}
+          open={overlayOpen}
+          onClose={() => setOverlayOpen(false)}
+          onOpen={openResult}
+        />
+      ),
+    });
 
     const detailTab: PanelTab = {
       id: DETAIL_KEY_ID,
@@ -182,6 +229,20 @@ export default Plugin.define({
         />
       ),
     });
+
+    ctx.add(Command, (): Command => ({
+      id: "search",
+      title: "全文检索：搜索全部会话",
+      description: "打开非模态搜索浮层，主界面保持可见",
+      keywords: "search find 全文 检索 索引 fine overlay",
+      group: "搜索",
+      section: "general",
+      bind: "mod+shift+g",
+      featured: true,
+      run: () => {
+        setOverlayOpen((value) => !value);
+      },
+    }));
 
     ctx.add(Command, (): Command => ({
       id: "status",
