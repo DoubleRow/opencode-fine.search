@@ -109,6 +109,12 @@ export default Plugin.define({
       return ctx.sessions.current()?.server.id ?? ids[0];
     }
 
+    /** 详情栏当前是否真的显示在屏幕上（用户可能把侧栏收起了）。 */
+    function panelVisible() {
+      const host = ctx.sessions.current();
+      return host ? ctx.layout.state(panelKey, host) === "visible" : false;
+    }
+
     function openResult(item: SearchOutputItem) {
       const server = serverForSession(item.sessionId);
       if (!server) {
@@ -132,7 +138,7 @@ export default Plugin.define({
       const host = ctx.sessions.current();
       if (!host) return;
       setSelection(host.id, selectionFor(query, item));
-      if (ctx.layout.state(panelKey, host) === "closed") {
+      if (ctx.layout.state(panelKey, host) !== "visible") {
         ctx.layout.open(panelKey, host, { tab: "select" });
       }
     }
@@ -231,6 +237,7 @@ export default Plugin.define({
           onClose={() => setOverlayOpen(false)}
           onOpen={openResult}
           onSelect={showDetail}
+          panelVisible={panelVisible}
         />
       ),
     });

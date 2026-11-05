@@ -198,6 +198,8 @@ export interface SearchOverlayProps {
   onOpen: (item: SearchOutputItem) => void;
   /** 选中项变化：驱动右侧详情栏。 */
   onSelect: (item: SearchOutputItem, query: string) => void;
+  /** 详情栏是否真的显示在屏幕上：收起侧栏时它还在 DOM 里，但宽度不能算数。 */
+  panelVisible: () => boolean;
 }
 
 export function SearchOverlay(props: SearchOverlayProps) {
@@ -212,6 +214,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
   let measureTimer: ReturnType<typeof setTimeout> | undefined;
+  let safetyTimer: ReturnType<typeof setInterval> | undefined;
   let panelObserver: ResizeObserver | undefined;
   let observedPanel: HTMLElement | null = null;
   let searchToken = 0;
@@ -253,7 +256,8 @@ export function SearchOverlay(props: SearchOverlayProps) {
     const viewportWidth = window.innerWidth;
 
     const panel = document.querySelector<HTMLElement>(".oc-detail");
-    const panelWidth = panel ? panel.getBoundingClientRect().width : 0;
+    const panelWidth =
+      props.panelVisible() && panel ? panel.getBoundingClientRect().width : 0;
 
     // 缓存的会话时间线也会渲染标题行入口，只认当前在视口里的那个。
     const entries = Array.from(document.querySelectorAll<HTMLElement>(".oc-search-entry"));
@@ -424,10 +428,20 @@ export function SearchOverlay(props: SearchOverlayProps) {
     });
   });
 
-  // 打开时量一次；之后靠 ResizeObserver / 窗口缩放触发，不再轮询。
+  // 详情栏开关（包括用户收起侧栏）→ 重新量位。
+  createEffect(
+    on(() => props.panelVisible(), () => {
+      if (!props.open()) return;
+      scheduleMeasure(120);
+      setTimeout(measureCard, 420);
+    }),
+  );
+
+  // 打开时量一次；之后靠 ResizeObserver / 窗口缩放触发。
   createEffect(
     on(() => props.open(), (value) => {
       clearTimeout(measureTimer);
+      clearInterval(safetyTimer);
       if (!value) {
         panelObserver?.disconnect();
         observedPanel = null;
@@ -435,6 +449,8 @@ export function SearchOverlay(props: SearchOverlayProps) {
       }
       requestAnimationFrame(measureCard);
       setTimeout(measureCard, 380);
+      // 兜底：布局变化没触发事件时，600ms 补量一次（值没变不会写信号）。
+      safetyTimer = setInterval(measureCard, 600);
     }),
   );
 
@@ -442,6 +458,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
     clearTimeout(searchTimer);
     clearTimeout(selectTimer);
     clearTimeout(measureTimer);
+    clearInterval(safetyTimer);
     panelObserver?.disconnect();
   });
 
