@@ -10,6 +10,7 @@ import {
   Command,
   Panel,
   Plugin,
+  Slot,
   Style,
   type Context,
   type PanelTab,
@@ -26,6 +27,7 @@ import {
 } from "./panel-model";
 import { installContentSearch } from "./palette-search";
 import { SearchRpc, type SearchOutputItem, type StatusOutput } from "./rpc";
+import { SPIKE_CSS, SpikeHeaderButton, SpikeOverlay } from "./spike-p0";
 
 function describeStatus(status: StatusOutput): string {
   if (!status.ready) {
@@ -146,6 +148,19 @@ export default Plugin.define({
     });
 
     ctx.add(Style, DETAIL_CSS);
+
+    // ---- P0 spike：只验证位置与层级，P1 起替换为真实浮层/入口 ----
+    ctx.add(Style, SPIKE_CSS);
+    ctx.add(Slot, {
+      at: "window.bottom",
+      render: () => <SpikeOverlay />,
+    });
+    ctx.add(Slot, {
+      at: "session.header",
+      order: -1,
+      render: () => <SpikeHeaderButton ctx={ctx} />,
+    });
+    // ---- P0 spike end ----
 
     const detailTab: PanelTab = {
       id: DETAIL_KEY_ID,
