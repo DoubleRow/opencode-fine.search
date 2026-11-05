@@ -82,7 +82,7 @@ export function installContentSearch(
 
       const requested = Math.max(Number(input?.limit) || limit, limit);
       const pool = await originalList(
-        { ...(input ?? {}), search: undefined, limit: Math.max(requested, 200) },
+        { ...input, search: undefined, limit: Math.max(requested, 200) },
         requestOptions,
       );
       const list = Array.isArray(pool?.data) ? pool.data : [];
@@ -112,7 +112,7 @@ export function installContentSearch(
         hits.push({
           ...base,
           title: contentTitle(query, item.snippet, typeof base.title === "string" ? base.title : ""),
-          time: { ...(base.time ?? {}), updated: Date.now() - hits.length },
+          time: { ...base.time, updated: Date.now() - hits.length },
         });
         if (hits.length >= requested) break;
       }
