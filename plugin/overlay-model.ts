@@ -63,6 +63,17 @@ export function cardBox(input: CardBoxInput): { left: number; width: number } {
   return { left, width };
 }
 
+/**
+ * 卡片位移量。
+ *
+ * 卡片用 `left: 50%` + `translate3d(calc(-50% + offset))` 定位，
+ * 左边缘落点 = 视口中心 + offset - 卡片半宽；这里反解出 offset，
+ * 使左边缘正好等于 cardBox 给出的 left。
+ */
+export function cardOffset(left: number, width: number, viewportWidth: number): number {
+  return left - (viewportWidth - width) / 2;
+}
+
 export function clampIndex(index: number, count: number): number {
   if (count <= 0) return 0;
   const value = Math.trunc(Number(index) || 0);

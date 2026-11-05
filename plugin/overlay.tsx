@@ -25,6 +25,7 @@ import { formatWhen, kindLabel, termsOf } from "./panel-model";
 import {
   FILTERS,
   cardBox,
+  cardOffset,
   clampIndex,
   filterItems,
   filterLabel,
@@ -68,7 +69,7 @@ export const OVERLAY_CSS = `
   transform: translate3d(calc(-50% + var(--oc-card-offset, 0px)), 0, 0);
   width: var(--oc-card-width, min(720px, calc(100vw - 96px)));
   max-width: calc(100vw - 24px);
-  transition: transform 180ms cubic-bezier(.22, 1, .36, 1);
+  transition: transform 300ms cubic-bezier(.33, 1, .68, 1);
   will-change: transform;
   max-height: min(74vh, 760px);
   display: flex;
@@ -275,7 +276,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
 
     const measured = cardBox({ viewportWidth, panelWidth, contentLeft });
     const next = {
-      offset: measured.left - viewportWidth / 2,
+      offset: cardOffset(measured.left, measured.width, viewportWidth),
       width: measured.width,
     };
     const previous = box();

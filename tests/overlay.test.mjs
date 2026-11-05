@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FILTERS,
   cardBox,
+  cardOffset,
   clampIndex,
   filterItems,
   filterLabel,
@@ -97,4 +98,13 @@ test("浮层卡片在极端窄窗下不跑出视口", () => {
   const box = cardBox({ viewportWidth: 600, panelWidth: 300, contentLeft: 200 });
   assert.ok(box.left >= 8);
   assert.ok(box.left + box.width <= 600 - 8);
+});
+
+test("位移换算后卡片左边缘落回 cardBox 给的 left", () => {
+  const box = cardBox({ viewportWidth: 1854, panelWidth: 400, contentLeft: 260 });
+  const offset = cardOffset(box.left, box.width, 1854);
+  // left:50% + translate3d(calc(-50% + offset)) 之后的左边缘。
+  const finalLeft = 1854 / 2 + offset - box.width / 2;
+  assert.ok(Math.abs(finalLeft - box.left) < 0.001);
+  assert.ok(finalLeft >= 8);
 });
