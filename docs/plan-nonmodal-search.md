@@ -73,6 +73,28 @@ window.bottom / session.header / session.location.menu / session.panel.end
 
 > P0 需先验证：`window.bottom` 的祖先没有 `transform/filter`，否则 fixed 会被限制为局部定位。
 
+## 2.4 P0 实测结论（2026-11-05，分支 `spike/p0-ui`）
+
+三项验证全部通过，结论如下：
+
+| 验证项 | 结果 |
+| --- | --- |
+| `window.bottom` + `position: fixed` | 视口 1854×1011，期望/实测 `1494,80`，偏差 `0,0`；`elementFromPoint` 命中浮层自身；祖先无 `transform/filter/perspective/contain`；slot 容器仅 1px 高，不挤压布局 |
+| 标题行图标 | 正常渲染在 `.session-header-actions`，与原生图标间距 8px；**视觉上位于右侧图标簇，不紧贴 ⋯** |
+| 键盘拦截 | 合成 `ArrowDown` 被 `stopPropagation` 拦住，普通键正常冒泡；时间线不滚动、不切会话 |
+
+两个必须记住的修正：
+
+1. **`Slot` 的 `order` 选项只排序插件插槽之间，不是 CSS `order`**。要让图标排在原生 Ctrl+F 输入条之前，必须给渲染元素加 CSS `order:-1`（现有占位已加）。
+2. **Esc 残余风险**：Kobalte 的 Escape 监听在 `document` 同一节点，`stopPropagation` 拦不住同层监听。P1 若要求 Esc 只关我们的浮层，需在 input 上挂**原生捕获监听**（`addEventListener("keydown", handler, true)`）做硬隔离。
+
+当前占位状态：
+
+- 入口：`session.header` slot，`glasses` 图标 + 「全文」文字按钮，`order:-1`；
+- 点击只弹 toast，不接 RPC；
+- 红框诊断浮层已移除；
+- 提交：`6dff8d9`（P0 验证）、`7a37b70`（占位样式 + 移除红框）。
+
 ## 3. 目标交互
 
 ```
@@ -200,3 +222,28 @@ plugin/rpc.ts           search / read / summary（沿用/补充）
 - 不恢复原生 `DialogSessionSearch` 的 scrim；
 - 不在浮层里做向量检索（语义 lane 后置）；
 - 不自动打开详情面板（预览已在浮层内，避免二次弹层）。
+
+## 11. 交接（P1 起点）
+
+当前分支 `spike/p0-ui` 已包含：
+
+```
+7a37b70 feat(gui): 更换搜索入口占位样式并移除 P0 红框
+6dff8d9 feat(gui): P0 验证浮层层级、标题行图标与键盘拦截
+7f8a4a2 docs(plan): 非模态搜索浮层实施方案
+```
+
+P1 可以直接以 `spike/p0-ui` 为基线（建议改名为 `feat/p1-search-overlay`），也可以从 `feat/p0-skeleton` cherry-pick `7a37b70`。
+
+P1 要做的第一件事：
+
+1. 把 `plugin/spike-p0.tsx` 的占位按钮接到浮层开关；
+2. 在 `window.bottom` slot 挂真正的 `SearchOverlay`（P0 已验证 fixed 可用）；
+3. 复用现有 `plugin/panel.tsx` / `panel-model.ts` 的摘要与片段渲染逻辑，避免重复实现；
+4. 浮层跑通后再决定是否移除 `palette-search.ts` 对 `session.list` 的补丁（单独 commit，保留回退）。
+
+注意：
+
+- 工作区有一个**未跟踪**文件 `docs/feasibility-search-ui.md`（调研），不要删除；
+- 构建用 `pnpm build:gui`，桌面端会自动重载；
+- 不自动 push。
