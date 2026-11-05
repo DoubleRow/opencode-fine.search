@@ -50,7 +50,9 @@ DOM 顺序：
 
 - `session.header` slot **天然位于 ⋯ 之后**，不需要 CSS 调序；
 - 样式：`.session-header-actions { display:flex; gap:8px; margin-inline-start:6px }`，与原生图标间距一致；
-- 只有 Ctrl+F 的内联搜索条展开时，它才会排在插件图标前面；需要固定顺序时给插件元素加 `order:-1`。
+- 只有 Ctrl+F 的内联搜索条展开时，它才会排在插件图标前面；
+- **注意**：`Slot` 的 `order` 选项只对插件插槽之间排序，**不是 CSS `order`**；要排在原生 Ctrl+F 条之前，必须给渲染元素本身加 CSS `order: -1`。
+- 视觉上 `.session-header-actions` 靠右，图标位于右侧图标簇，不会紧贴 ⋯；这是 P0 实测结论。
 
 ### 2.2 左侧边栏不可控
 
