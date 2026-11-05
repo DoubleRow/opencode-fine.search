@@ -543,7 +543,15 @@ async function runCli(argv) {
     return 0;
   }
 
-  const { opts, positional } = parseArgs(argv.slice(1));
+  // 参数错误属于用法问题，按项目约定返回 2（与未知命令一致），不混进运行时失败的 1。
+  let parsed;
+  try {
+    parsed = parseArgs(argv.slice(1));
+  } catch (error) {
+    process.stderr.write(`${error?.message || error}\n\n${USAGE}`);
+    return 2;
+  }
+  const { opts, positional } = parsed;
 
   if (command === "status") {
     const state = status();
