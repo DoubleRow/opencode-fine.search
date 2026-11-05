@@ -87,7 +87,7 @@ export interface PageLayout {
   readonly listTextWidth: number;
 }
 
-const PAGE_CHROME = 4; // 标题 1 + 查询 1 + 状态 1 + 底栏 1
+const PAGE_CHROME = 5; // 标题 1 + 查询 1 + 筛选 1 + 状态 1 + 底栏 1
 const RIGHT_CHROME = 10; // 详情头 1 + 元信息 3 + 摘要基准 4 + 分区 1 + 底部 1
 
 export function pageLayout(width: number, height: number): PageLayout {

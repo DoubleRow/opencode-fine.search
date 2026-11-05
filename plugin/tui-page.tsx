@@ -22,7 +22,7 @@ import {
   type StreamOutput,
   type SummaryOutput,
 } from "./rpc.js";
-import { filterItems, filterLabel, type OverlayFilter } from "./overlay-model.js";
+import { FILTERS, filterItems, filterLabel, type OverlayFilter } from "./overlay-model.js";
 import { formatWhen, kindLabel, termsOf } from "./panel-model.js";
 import { mergeItems, nextOffset } from "./stream-model.js";
 import {
@@ -600,7 +600,7 @@ export function FineSearchPage(props: FineSearchPageProps) {
       {
         id: "fine.search.filter",
         title: "全文检索：切换筛选",
-        bind: "ctrl+o",
+        bind: "ctrl+o,ctrl+0",
         run: () => cycleFilter(),
       },
       {
@@ -684,6 +684,40 @@ export function FineSearchPage(props: FineSearchPageProps) {
     return "↑↓ 移动 · PgUp/PgDn 翻页 · Tab 摘要/回放 · Ctrl+O 筛选 · Ctrl+T 思考 · Ctrl+J 展开 · Enter 新标签打开 · Esc 返回";
   });
 
+  /** 各类型命中数（基于未筛选的结果，切换时才看得出差别）。 */
+  const filterCounts = createMemo(() => {
+    const counts: Record<OverlayFilter, number> = {
+      all: items().length,
+      assistant: 0,
+      tool: 0,
+      reasoning: 0,
+      user: 0,
+    };
+    for (const item of items()) {
+      if (item.kind === "assistant") counts.assistant += 1;
+      else if (item.kind === "tool") counts.tool += 1;
+      else if (item.kind === "reasoning") counts.reasoning += 1;
+      else if (item.kind === "user") counts.user += 1;
+    }
+    return counts;
+  });
+
+  /** 筛选条（放不下就少显示几档，不让它换行）。 */
+  const filterChips = createMemo(() => {
+    const counts = filterCounts();
+    const limit = layout().width - 18;
+    const chips: { id: OverlayFilter; text: string; active: boolean }[] = [];
+    let used = 6; // " 筛选 "
+    for (const option of FILTERS) {
+      const text = `${option.label} ${counts[option.id]}`;
+      const width = displayWidth(text) + 3;
+      if (chips.length > 0 && used + width > limit) break;
+      chips.push({ id: option.id, text, active: filter() === option.id });
+      used += width;
+    }
+    return chips;
+  });
+
   const info = createMemo(() => {
     const parts: string[] = [];
     if (infoLine()) parts.push(infoLine());
@@ -709,7 +743,13 @@ export function FineSearchPage(props: FineSearchPageProps) {
     }
     if (state === "loading") return [{ text: "搜索中…", color: theme.text.muted }];
     if (state === "idle") return [{ text: "输入关键词开始检索。", color: theme.text.faint }];
-    if (state === "empty") return [{ text: "没有命中。", color: theme.text.faint }];
+    if (state === "empty") {
+      const rows: PlainRow[] = [{ text: "没有命中。", color: theme.text.faint }];
+      if (filter() !== "all") {
+        rows.push({ text: `按 Ctrl+O 切回「全部」（当前：${filterLabel(filter())}）`, color: theme.text.faint });
+      }
+      return rows;
+    }
     if (state === "error") return [{ text: errorLine(), color: theme.text.muted }];
     return windowed().map((row: TuiRow, i) => {
       const isSel = row.type === "hit" && start() + i === sel();
@@ -892,6 +932,30 @@ export function FineSearchPage(props: FineSearchPageProps) {
         <text fg={theme.text.faint} height={1}>
           {` ${filterLabel(filter())}`}
         </text>
+      </box>
+
+      <box flexDirection="row" width="100%" height={1}>
+        <text fg={theme.text.faint} height={1} wrapMode="none">
+          {" 筛选 "}
+        </text>
+        <For each={filterChips()}>
+          {(chip) => (
+            <text
+              fg={chip.active ? accent : theme.text.faint}
+              height={1}
+              wrapMode="none"
+              truncate
+            >
+              {`${chip.active ? "[" : " "}${chip.text}${chip.active ? "]" : " "}`}
+            </text>
+          )}
+        </For>
+        <box flexGrow={1} />
+        <Show when={layout().width >= 110}>
+          <text fg={theme.text.faint} height={1}>
+            Ctrl+O 切换
+          </text>
+        </Show>
       </box>
 
       <text fg={errorLine() ? theme.text.base : theme.text.muted} height={1} wrapMode="none" truncate>
