@@ -164,7 +164,6 @@ export function DetailPanel(props: DetailPanelProps) {
   const [text, setText] = createSignal("");
   const [readState, setReadState] = createSignal<LoadState>("idle");
   const [readError, setReadError] = createSignal("");
-  const [expanded, setExpanded] = createSignal(false);
 
   let summaryToken = 0;
   let readToken = 0;
@@ -411,8 +410,6 @@ export function DetailPanel(props: DetailPanelProps) {
                 terms={terms()}
                 state={readState()}
                 error={readError()}
-                expanded={expanded()}
-                onToggle={() => setExpanded((value) => !value)}
                 onRetry={() => void loadText()}
                 action={
                   <button

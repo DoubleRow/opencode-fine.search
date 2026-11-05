@@ -60,11 +60,6 @@ export const DETAIL_PARTS_CSS = `
   color: var(--oc-faint, #6f6f6f); font-size: 11px;
 }
 .oc-detail-nav .spacer { flex: 1; }
-.oc-detail-toggle {
-  border: 1px solid var(--oc-line-strong, rgba(255,255,255,.14)); border-radius: 5px;
-  background: #242424; color: #dcdcdc; font-size: 11px; padding: 1px 7px; cursor: pointer;
-}
-.oc-detail-toggle:hover { background: #2b2b2b; }
 .oc-detail-empty, .oc-detail-loading, .oc-detail-error {
   color: var(--oc-muted, #9a9a9a); font-size: 12px; line-height: 1.7;
 }
@@ -188,8 +183,6 @@ export interface TextBlockProps {
   terms: string[];
   state: LoadState;
   error: string;
-  expanded: boolean;
-  onToggle: () => void;
   onRetry: () => void;
   label?: string;
   /** 标题行右侧的附加操作，例如「展开为只读回放」。 */
@@ -200,7 +193,7 @@ export interface TextBlockProps {
 
 /** 命中原文：默认 20 行折叠，可展开；底部一行放折叠按钮与自定义导航。 */
 export function TextBlock(props: TextBlockProps) {
-  const lines = createMemo(() => collapseLines(props.text, props.expanded));
+  const lines = createMemo(() => collapseLines(props.text, false));
 
   return (
     <div class="oc-detail-hit-wrap">
@@ -238,8 +231,8 @@ export function TextBlock(props: TextBlockProps) {
                 </div>
               )}
             </For>
-            <Show when={lines().canExpand && !props.expanded}>
-              <div class="oc-detail-more">…还有 {lines().hidden} 行，未展开</div>
+            <Show when={lines().canExpand}>
+              <div class="oc-detail-more">…还有 {lines().hidden} 行，可展开为只读回放</div>
             </Show>
           </div>
         </Show>
@@ -248,11 +241,6 @@ export function TextBlock(props: TextBlockProps) {
       <div class="oc-detail-nav">
         {props.navStart}
         <span class="spacer" />
-        <Show when={lines().canExpand}>
-          <button type="button" class="oc-detail-toggle" onClick={props.onToggle}>
-            {props.expanded ? "收起" : `展开全部（共 ${lines().total} 行）`}
-          </button>
-        </Show>
         {props.navEnd}
       </div>
     </div>
