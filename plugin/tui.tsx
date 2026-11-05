@@ -609,7 +609,7 @@ function SearchDialog(props: SearchDialogProps) {
       <box flexDirection="row" gap={2}>
         <box width="40%" flexDirection="column" minHeight={LIST_WINDOW + 2}>
           <Show when={listState() === "not-ready"}>
-            <text fg={theme.text.faint}>索引未就绪，无法检索。运行 bin/oc-search sync 重建。</text>
+            <text fg={theme.text.faint}>索引未就绪，无法检索。运行 node plugin/worker.mjs sync 重建。</text>
           </Show>
           <Show when={listState() === "loading"}>
             <text fg={theme.text.muted}>搜索中…</text>
