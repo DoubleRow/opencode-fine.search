@@ -16,6 +16,11 @@ import { FineSearchPage } from "./tui-page.js";
 
 const PAGE_NAME = "fine.search.page";
 
+/** 搜索页专用标签的惰性会话 id（未发消息不落库）；复用避免每次 /fs 都新开。 */
+let searchTabID: string | null = null;
+/** 搜索标签对应的「从哪来」；从别的标签重开时沿用。 */
+let searchBack: Route | null = null;
+
 export default Plugin.define({
   id: "opencode-fine.search.tui",
   setup(context) {
@@ -26,6 +31,7 @@ export default Plugin.define({
           context={context}
           initialQuery={typeof data?.query === "string" ? data.query : ""}
           returnTo={asRoute(data?.back) ?? { type: "home" }}
+          searchTab={typeof data?.searchTab === "string" ? data.searchTab : undefined}
         />
       ),
     });
@@ -50,15 +56,69 @@ export default Plugin.define({
   },
 });
 
-function openPage(context: Context, input?: string): void {
+async function openPage(context: Context, input?: string): Promise<void> {
   const current = context.ui.router.current();
   // 已经在本页时再调 /fs 不再压栈，避免把「返回目标」覆盖成自己。
   if (current.type === "plugin" && current.name === PAGE_NAME) return;
   const query = typeof input === "string" ? input.trim() : "";
+  let back = backTarget(context, current);
+
+  // 搜索页单独占一个标签：原会话标签保持原样、任务继续跑。
+  // session.new 是惰性的（没发消息不落库），Esc 时把该标签关掉即可。
+  let searchTab: string | undefined;
+  if (context.ui.tabs.enabled()) {
+    const activeNow = activeSession(context);
+    const reusable =
+      searchTabID !== null && context.ui.tabs.list().some((tab) => tab.sessionID === searchTabID);
+    if (reusable && searchTabID) {
+      searchTab = searchTabID;
+      if (activeNow === searchTabID) back = searchBack ?? back;
+      context.ui.tabs.focus(searchTabID);
+    } else {
+      const before = activeNow;
+      try {
+        context.keymap.dispatch("session.new");
+        searchTab = await waitForNewTab(context, before);
+      } catch {
+        searchTab = undefined;
+      }
+      searchTabID = searchTab ?? null;
+      searchBack = back;
+    }
+  }
+
   context.ui.router.navigate({
     type: "plugin",
     name: PAGE_NAME,
-    data: { back: backTarget(context, current), ...(query ? { query } : {}) },
+    data: { back, ...(searchTab ? { searchTab } : {}), ...(query ? { query } : {}) },
+  });
+}
+
+function activeSession(context: Context): string | undefined {
+  return context.ui.tabs.list().find((tab) => tab.active)?.sessionID;
+}
+
+/** 等 session.new 把新标签切为激活；超时返回 undefined，退回当前标签打开。 */
+function waitForNewTab(
+  context: Context,
+  before: string | undefined,
+  timeoutMs = 1000,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      const active = activeSession(context);
+      if (active && active !== before) {
+        resolve(active);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(undefined);
+        return;
+      }
+      setTimeout(tick, 30);
+    };
+    setTimeout(tick, 30);
   });
 }
 

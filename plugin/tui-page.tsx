@@ -58,6 +58,8 @@ export interface FineSearchPageProps {
   readonly initialQuery: string;
   /** Esc 返回的目标页面（进入搜索页之前的路由）。 */
   readonly returnTo: Route;
+  /** 为搜索页新建的标签（session.new 的惰性会话 id）；Esc 时关掉。 */
+  readonly searchTab?: string;
 }
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -466,6 +468,18 @@ export function FineSearchPage(props: FineSearchPageProps) {
     context.ui.router.navigate(route);
   }
 
+  /** 离开搜索页：先关掉为搜索新建的标签，再回到原页面。 */
+  function leavePage(): void {
+    if (props.searchTab && context.ui.tabs.enabled()) {
+      try {
+        context.ui.tabs.close(props.searchTab);
+      } catch {
+        // 标签可能已被用户手动关闭，忽略后继续返回。
+      }
+    }
+    goTo(props.returnTo);
+  }
+
   function openSession(): void {
     const hit = selectedHit();
     if (!hit) {
@@ -608,7 +622,7 @@ export function FineSearchPage(props: FineSearchPageProps) {
         id: "fine.search.close",
         title: "全文检索：返回",
         bind: "escape",
-        run: () => goTo(props.returnTo),
+        run: () => leavePage(),
       },
     ],
     bindings: [
