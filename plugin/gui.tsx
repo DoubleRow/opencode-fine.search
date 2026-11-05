@@ -295,6 +295,10 @@ export default Plugin.define({
             return !!hit && streamKey() === `${props.session.id}:${hit.segmentId}`;
           }}
           onExitStream={() => setStreamKey(null)}
+          onExpandStream={() => {
+            const hit = selection[props.session.id]?.hits[0];
+            if (hit) setStreamKey(`${props.session.id}:${hit.segmentId}`);
+          }}
         />
       ),
     });

@@ -192,6 +192,8 @@ export interface TextBlockProps {
   onToggle: () => void;
   onRetry: () => void;
   label?: string;
+  /** 标题行右侧的附加操作，例如「展开为只读回放」。 */
+  action?: JSX.Element;
   navStart?: JSX.Element;
   navEnd?: JSX.Element;
 }
@@ -202,7 +204,10 @@ export function TextBlock(props: TextBlockProps) {
 
   return (
     <div class="oc-detail-hit-wrap">
-      <div class="oc-detail-label">{props.label ?? "命中原文"}</div>
+      <div class="oc-detail-label">
+        {props.label ?? "命中原文"}
+        <Show when={props.action}>{props.action}</Show>
+      </div>
 
       <Show
         when={props.state !== "error"}

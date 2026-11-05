@@ -53,6 +53,7 @@ export const OVERLAY_CSS = `
   position: fixed;
   inset: 0;
   z-index: 40;
+  pointer-events: none;
   color: var(--oc-text);
   font-size: 12px;
   line-height: 1.55;
@@ -61,7 +62,7 @@ export const OVERLAY_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .oc-overlay-card { transition: none; }
 }
-.oc-overlay-scrim { position: absolute; inset: 0; background: transparent; }
+.oc-overlay-scrim { position: absolute; inset: 0; background: transparent; pointer-events: auto; }
 .oc-overlay-card {
   position: absolute;
   top: 64px;
@@ -79,6 +80,7 @@ export const OVERLAY_CSS = `
   border: 1px solid var(--oc-line-strong);
   border-radius: 8px;
   box-shadow: 0 24px 64px rgba(0,0,0,.45);
+  pointer-events: auto;
 }
 .oc-overlay-head {
   flex: 0 0 auto;
@@ -222,6 +224,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
   let observedPanel: HTMLElement | null = null;
   let searchToken = 0;
   let inputEl: HTMLInputElement | undefined;
+  let cardEl: HTMLDivElement | undefined;
 
   const terms = createMemo(() => termsOf(query()));
   const results = createMemo(() => filterItems(raw(), filter()));
@@ -413,14 +416,13 @@ export function SearchOverlay(props: SearchOverlayProps) {
         event.preventDefault();
         event.stopImmediatePropagation();
         props.onClose();
-      } else if (event.key === "ArrowDown") {
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        // 焦点在侧栏时把方向键让给流水滚动，不抢。
+        const focusInsideCard = !!cardEl && cardEl.contains(document.activeElement);
+        if (!focusInsideCard) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        move(1);
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        move(-1);
+        move(event.key === "ArrowDown" ? 1 : -1);
       }
     };
     document.addEventListener("keydown", onKey, true);
@@ -493,7 +495,14 @@ export function SearchOverlay(props: SearchOverlayProps) {
         onClick={props.onClose}
       />
 
-      <div class="oc-overlay-card" role="dialog" aria-label="搜索全部会话">
+      <div
+        class="oc-overlay-card"
+        role="dialog"
+        aria-label="搜索全部会话"
+        ref={(element) => {
+          cardEl = element;
+        }}
+      >
         <div class="oc-overlay-head">
           <span class="ico">
             <props.ctx.ui.Icon name="magnifying-glass" size="small" />

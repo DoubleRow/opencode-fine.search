@@ -109,6 +109,29 @@ export const DETAIL_CSS = `
   padding: 10px 14px; border-top: 1px solid var(--oc-line); background: #191919;
 }
 .oc-detail-hint { margin-left: auto; color: var(--oc-faint); font-size: 11px; white-space: nowrap; }
+.oc-detail-views { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.oc-detail-view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.oc-detail-view[data-state="leaving"] {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  transform: translateY(-6px) scale(.995);
+  transition: opacity 160ms linear, transform 200ms ease;
+}
+.oc-detail-view[data-state="active"] {
+  animation: oc-detail-in 240ms cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes oc-detail-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.oc-detail-expand {
+  margin-left: 8px; border: 0; background: transparent; color: #7aa2f7;
+  font: inherit; font-size: 11px; letter-spacing: 0; cursor: pointer; padding: 0;
+}
+.oc-detail-expand:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  .oc-detail-view[data-state="active"] { animation: none; }
+  .oc-detail-view[data-state="leaving"] { transition: none; }
+}
 `;
 
 interface DetailPanelProps {
@@ -125,6 +148,8 @@ interface DetailPanelProps {
   streaming: () => boolean;
   /** 从流水退回预览。 */
   onExitStream: () => void;
+  /** 把当前命中原文展开为只读回放。 */
+  onExpandStream: () => void;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -169,6 +194,25 @@ export function DetailPanel(props: DetailPanelProps) {
 
   // 面板首次打开时先给骨架，等侧栏展开动画（约 300ms）结束再拉数据，避免动画中换内容。
   const [armed, setArmed] = createSignal(false);
+
+  // 预览 ↔ 流水：保留离场层 240ms 做交叉淡入，避免硬切。
+  const [view, setView] = createSignal<"preview" | "stream">("preview");
+  const [leaving, setLeaving] = createSignal<"preview" | "stream" | null>(null);
+  let viewTimer: ReturnType<typeof setTimeout> | undefined;
+
+  createEffect(
+    on(
+      () => props.streaming(),
+      (value) => {
+        const next = value ? "stream" : "preview";
+        if (next === view()) return;
+        setLeaving(view());
+        setView(next);
+        clearTimeout(viewTimer);
+        viewTimer = setTimeout(() => setLeaving(null), 240);
+      },
+    ),
+  );
   onMount(() => {
     const timer = setTimeout(() => setArmed(true), 320);
     onCleanup(() => clearTimeout(timer));
@@ -322,10 +366,12 @@ export function DetailPanel(props: DetailPanelProps) {
         }
       >
         {(current) => (
-          <Show
-            when={props.streaming()}
-            fallback={
-              <>
+          <div class="oc-detail-views">
+            <Show when={view() === "preview" || leaving() === "preview"}>
+              <div
+                class="oc-detail-view"
+                data-state={view() === "preview" ? "active" : "leaving"}
+              >
                 <div class="oc-detail-body">
               <div class="oc-detail-meta">
                 <span class="oc-detail-project">
@@ -364,6 +410,15 @@ export function DetailPanel(props: DetailPanelProps) {
                 expanded={expanded()}
                 onToggle={() => setExpanded((value) => !value)}
                 onRetry={() => void loadText()}
+                action={
+                  <button
+                    type="button"
+                    class="oc-detail-expand"
+                    onClick={props.onExpandStream}
+                  >
+                    展开为只读回放 ›
+                  </button>
+                }
                 navStart={
                   <Show when={total() > 1}>
                     <span>
@@ -408,19 +463,26 @@ export function DetailPanel(props: DetailPanelProps) {
                   </props.ctx.ui.Button>
                   <span class="oc-detail-hint">{busy() ? "加载中…" : "Esc 关闭"}</span>
                 </div>
-              </>
-            }
-          >
-            <StreamView
-              ctx={props.ctx}
-              sessionId={current().sessionId}
-              anchorSegmentId={current().segmentId}
-              query={props.selection()?.query ?? ""}
-              isCurrent={current().sessionId === props.session.id}
-              onOpenSession={openSession}
-              onExit={props.onExitStream}
-            />
-          </Show>
+              </div>
+            </Show>
+
+            <Show when={view() === "stream" || leaving() === "stream"}>
+              <div
+                class="oc-detail-view"
+                data-state={view() === "stream" ? "active" : "leaving"}
+              >
+                <StreamView
+                  ctx={props.ctx}
+                  sessionId={current().sessionId}
+                  anchorSegmentId={current().segmentId}
+                  query={props.selection()?.query ?? ""}
+                  isCurrent={current().sessionId === props.session.id}
+                  onOpenSession={openSession}
+                  onExit={props.onExitStream}
+                />
+              </div>
+            </Show>
+          </div>
         )}
       </Show>
     </div>
