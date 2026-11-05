@@ -20,6 +20,7 @@ import {
   highlightParts,
   moveScroll,
   nextFilter,
+  openPlan,
   previewView,
   projectName,
   replayLines,
@@ -296,4 +297,9 @@ test("firstLineIndexFor/moveScroll 支撑回放视口补偿", () => {
   assert.equal(moveScroll(5, 10, 20), 15);
   assert.equal(moveScroll(15, 10, 20), 19);
   assert.equal(moveScroll(0, 1, 0), 0);
+});
+
+test("openPlan 标签页优先，未启用直接跳路由", () => {
+  assert.deepEqual(openPlan(true), ["tabs", "router"]);
+  assert.deepEqual(openPlan(false), ["router"]);
 });

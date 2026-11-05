@@ -45,6 +45,7 @@ import {
   highlightParts,
   moveScroll,
   nextFilter,
+  openPlan,
   previewView,
   projectName,
   replayLines,
@@ -370,6 +371,30 @@ function SearchDialog(props: SearchDialogProps) {
     setView("replay");
   }
 
+  // Enter：打开命中所在会话并关闭对话框（标签页优先，回退整页路由）。
+  function openSession(): void {
+    const hit = selectedHit();
+    if (!hit) {
+      context.ui.toast.show({ message: "先用 ↑↓ 选中一条命中", variant: "info" });
+      return;
+    }
+    for (const way of openPlan(context.ui.tabs.enabled())) {
+      try {
+        if (way === "tabs") {
+          if (!context.ui.tabs.focus(hit.sessionId)) continue;
+        } else {
+          context.ui.router.navigate({ type: "session", sessionID: hit.sessionId });
+        }
+        context.ui.dialog.clear();
+        return;
+      } catch (error) {
+        setErrorLine(`打开会话失败：${errorText(error)}`);
+        return;
+      }
+    }
+    setErrorLine("打开会话失败：标签页与路由都没能定位该会话");
+  }
+
   async function expandAnchor(): Promise<void> {
     const hit = selectedHit();
     if (!hit || view() !== "replay") return;
@@ -475,11 +500,29 @@ function SearchDialog(props: SearchDialogProps) {
         run: () => cycleFilter(),
       },
       {
+        id: "fine.search.open-session",
+        title: "全文检索：打开会话",
+        bind: "return",
+        run: () => openSession(),
+      },
+      {
         id: "fine.search.close",
         title: "全文检索：关闭",
         bind: "escape",
         run: () => context.ui.dialog.clear(),
       },
+    ],
+    bindings: [
+      "fine.search.up",
+      "fine.search.down",
+      "fine.search.page.up",
+      "fine.search.page.down",
+      "fine.search.view",
+      "fine.search.expand",
+      "fine.search.thinking",
+      "fine.search.filter",
+      "fine.search.open-session",
+      "fine.search.close",
     ],
   }));
 
@@ -563,11 +606,11 @@ function SearchDialog(props: SearchDialogProps) {
       <Show when={infoLine()}>
         <text fg={theme.text.muted}>{infoLine()}</text>
       </Show>
-      <Show when={!indexReady()}>
-        <text fg={theme.text.muted}>索引未就绪时搜索可能失败；运行 oc-search sync 重建。</text>
-      </Show>
       <box flexDirection="row" gap={2}>
         <box width="40%" flexDirection="column" minHeight={LIST_WINDOW + 2}>
+          <Show when={listState() === "not-ready"}>
+            <text fg={theme.text.faint}>索引未就绪，无法检索。运行 bin/oc-search sync 重建。</text>
+          </Show>
           <Show when={listState() === "loading"}>
             <text fg={theme.text.muted}>搜索中…</text>
           </Show>
@@ -648,8 +691,8 @@ function SearchDialog(props: SearchDialogProps) {
       </box>
       <text fg={theme.text.faint}>
         {view() === "replay"
-          ? "↑↓ 滚动 · PgUp/PgDn 更早/更后 · Ctrl+T 思考显隐 · Ctrl+J 展开命中 · Tab 回预览 · Esc 关闭"
-          : `↑↓ 选择 · PgUp/PgDn 十条一跳 · Ctrl+O 筛选（${FILTERS.map((f) => f.label).join("/")}）· Tab 回放 · Esc 关闭`}
+          ? "↑↓ 滚动 · PgUp/PgDn 更早/更后 · Ctrl+T 思考 · Ctrl+J 展开命中 · Enter 打开会话 · Tab 回预览 · Esc 关闭"
+          : `↑↓ 选择 · PgUp/PgDn 十条一跳 · Enter 打开会话 · Ctrl+O 筛选（${FILTERS.map((f) => f.label).join("/")}）· Tab 回放 · Esc 关闭`}
       </text>
     </box>
   );

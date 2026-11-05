@@ -419,3 +419,14 @@ export function moveScroll(prev: number, delta: number, count: number): number {
   const step = Math.trunc(delta) || 0;
   return Math.max(0, Math.min(current + step, max));
 }
+
+/** 打开会话的两条通路：优先标签页聚焦，退回整页路由跳转。 */
+export type OpenWay = "tabs" | "router";
+
+/**
+ * 打开会话的尝试顺序（纯函数，便于单测锁住回退语义）：
+ * 标签页模式启用时先走 tabs，失败或不可用再走 router；未启用直接跳页。
+ */
+export function openPlan(tabsEnabled: boolean): OpenWay[] {
+  return tabsEnabled ? ["tabs", "router"] : ["router"];
+}
