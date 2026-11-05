@@ -63,11 +63,13 @@ export const STREAM_CSS = `
 .oc-stream-badge.readonly { color: #d7c3ff; border-color: rgba(167,139,250,.35); background: rgba(167,139,250,.10); }
 .oc-stream-badge.current { color: #9ecbff; border-color: rgba(122,162,247,.40); background: rgba(122,162,247,.12); }
 .oc-stream-bar .progress { margin-left: auto; color: var(--oc-s-faint); font-size: 11px; white-space: nowrap; }
-.oc-stream-bar .link {
-  border: 0; background: transparent; color: var(--oc-s-muted); font: inherit;
-  font-size: 11px; cursor: pointer; padding: 2px 4px;
+.oc-stream-bar .back {
+  flex: 0 0 auto;
+  border: 1px solid var(--oc-s-line-strong); border-radius: 5px;
+  background: #242424; color: #dcdcdc; font: inherit; font-size: 11px;
+  padding: 1px 7px; cursor: pointer; white-space: nowrap;
 }
-.oc-stream-bar .link:hover { color: var(--oc-s-text); }
+.oc-stream-bar .back:hover { border-color: var(--oc-s-accent); color: var(--oc-s-text); }
 .oc-stream-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .oc-stream-msg {
   padding: 12px 14px 14px;
@@ -310,6 +312,9 @@ export function StreamView(props: StreamViewProps) {
   return (
     <div class="oc-stream">
       <div class="oc-stream-bar">
+        <button type="button" class="back" onClick={props.onExit} title="返回预览">
+          ← 返回预览
+        </button>
         <span class="title">{title() || "(无标题会话)"}</span>
         <span class="oc-stream-badge readonly">只读回放</span>
         <Show when={props.isCurrent}>
@@ -318,9 +323,6 @@ export function StreamView(props: StreamViewProps) {
         <span class="progress">
           {offset() + 1}-{offset() + items().length} / {total()}
         </span>
-        <button type="button" class="link" onClick={props.onExit}>
-          收起
-        </button>
       </div>
 
       <Show
@@ -469,6 +471,9 @@ export function StreamView(props: StreamViewProps) {
       <div class="oc-stream-foot">
         <props.ctx.ui.Button variant="contrast" size="small" onClick={props.onOpenSession}>
           在标签页打开
+        </props.ctx.ui.Button>
+        <props.ctx.ui.Button variant="neutral" size="small" onClick={props.onExit}>
+          返回预览
         </props.ctx.ui.Button>
         <span class="hint">只读 · 不影响主会话</span>
       </div>
