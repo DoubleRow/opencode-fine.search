@@ -9,6 +9,8 @@
 
 import type { Context } from "@opencode/plugin/gui";
 
+import { searchShortcutLabel } from "./shortcut";
+
 export const HEADER_ENTRY_CSS = `
 .oc-search-entry {
   order: -1;
@@ -24,9 +26,11 @@ export interface HeaderSearchButtonProps {
 }
 
 export function HeaderSearchButton(props: HeaderSearchButtonProps) {
+  const hint = () => `全文检索（${searchShortcutLabel(navigator.userAgent)}）`;
+
   return (
     <span class="oc-search-entry">
-      <props.ctx.ui.Tooltip value="全文检索（⌘⇧G）">
+      <props.ctx.ui.Tooltip value={hint()}>
         <props.ctx.ui.Button
           variant={props.open() ? "ghost" : "ghost-muted"}
           size="small"
