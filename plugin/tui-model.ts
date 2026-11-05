@@ -53,19 +53,64 @@ export function errorText(error: unknown): string {
   return String(error);
 }
 
-/** 单行列表的默认可视宽度（对话框左栏），超出截断加省略号。 */
+/** 单行列表的默认可视宽度，超出截断加省略号。 */
 export const LINE_WIDTH = 64;
-/** xlarge 对话框宽度（opencode v2.2.5 源码：xlarge=116）+ 本插件左右两栏的内宽。 */
-export const DIALOG_WIDTH = 112;
-export const LEFT_WIDTH = 42;
-export const RIGHT_WIDTH = 68;
-/** 右栏正文可用宽度：留出两列给缩进与续行标记。 */
-export const TEXT_WIDTH = RIGHT_WIDTH - 4;
-/** TUI 预览列实际渲染的行数：xlarge 弹窗高度有限，留出输入框与底栏。 */
-export const TUI_PREVIEW_LINES = 8;
 
-/** 列表区域可滚动的行数。 */
+/** 列表区域默认可见行数（纯函数缺省值；页面按实测高度覆盖）。 */
 export const LIST_WINDOW = 10;
+
+/**
+ * 页面布局：把终端可用宽高换算成两栏的数值尺寸。
+ *
+ * 页面路由实测可用区 = 终端整屏（160×45 时 root=160×45），因此直接按整屏算；
+ * `< 96` 列为窄屏，退化成单栏（列表/详情由 Tab 切换）。
+ */
+export interface PageLayout {
+  readonly wide: boolean;
+  readonly width: number;
+  readonly height: number;
+  /** 左栏宽度（含缩进）。 */
+  readonly left: number;
+  /** 右栏宽度。 */
+  readonly right: number;
+  /** 正文可用高度（已扣掉页头、查询行、底栏）。 */
+  readonly bodyHeight: number;
+  /** 左栏能放下的行数。 */
+  readonly listRows: number;
+  /** 右栏预览最多渲染的原文行数。 */
+  readonly previewLines: number;
+  /** 右栏回放窗口行数。 */
+  readonly replayRows: number;
+  /** 右栏正文换行宽度。 */
+  readonly textWidth: number;
+  /** 左栏每行的可用宽度（扣掉光标与缩进）。 */
+  readonly listTextWidth: number;
+}
+
+const PAGE_CHROME = 4; // 标题 1 + 查询 1 + 状态 1 + 底栏 1
+const RIGHT_CHROME = 10; // 详情头 1 + 元信息 3 + 摘要基准 4 + 分区 1 + 底部 1
+
+export function pageLayout(width: number, height: number): PageLayout {
+  const w = Math.max(40, Math.trunc(width) || 80);
+  const h = Math.max(12, Math.trunc(height) || 30);
+  const wide = w >= 96;
+  const left = wide ? Math.max(32, Math.min(64, Math.round(w * 0.36))) : w;
+  const right = wide ? Math.max(24, w - left - 1) : w;
+  const bodyHeight = Math.max(6, h - PAGE_CHROME);
+  return {
+    wide,
+    width: w,
+    height: h,
+    left,
+    right,
+    bodyHeight,
+    listRows: Math.max(4, bodyHeight - 2), // 左栏上下边框各占 1 行
+    previewLines: Math.max(4, bodyHeight - RIGHT_CHROME),
+    replayRows: Math.max(4, bodyHeight - 4),
+    textWidth: Math.max(20, right - 2),
+    listTextWidth: Math.max(16, left - 4),
+  };
+}
 
 /** PgUp/PgDn 一次跳过的命中条数。 */
 export const PAGE_HITS = 10;

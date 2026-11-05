@@ -22,6 +22,7 @@ import {
   moveScroll,
   nextFilter,
   openPlan,
+  pageLayout,
   previewView,
   projectName,
   replayLines,
@@ -310,4 +311,40 @@ test("clipDisplay 按显示宽度截断（CJK 记 2 格）", () => {
   assert.equal(clipDisplay("中文中文中文", 5), "中文…");
   assert.equal(displayWidth(clipDisplay("中文中文中文", 5)), 5);
   assert.equal(clipDisplay("超长的一段中文标题需要被截断", 9).endsWith("…"), true);
+});
+
+test("pageLayout 宽屏：两栏 + 分隔线正好填满宽度", () => {
+  for (const [w, h] of [[160, 45], [120, 35], [100, 30], [96, 24]]) {
+    const l = pageLayout(w, h);
+    assert.equal(l.wide, true, `${w}x${h} 应为宽屏`);
+    assert.equal(l.left + 1 + l.right, w, `${w}x${h} 宽度不闭合`);
+    assert.ok(l.left >= 32 && l.left <= 64);
+    assert.ok(l.right >= 24);
+    assert.ok(l.listRows >= 4 && l.previewLines >= 4 && l.replayRows >= 4);
+    assert.ok(l.listTextWidth > 0 && l.textWidth > 0);
+  }
+});
+
+test("pageLayout 窄屏：单栏且左右同宽", () => {
+  for (const [w, h] of [[95, 30], [80, 24], [60, 20]]) {
+    const l = pageLayout(w, h);
+    assert.equal(l.wide, false);
+    assert.equal(l.left, w);
+    assert.equal(l.right, w);
+  }
+});
+
+test("pageLayout 极小终端钳制到可用下限", () => {
+  const l = pageLayout(0, 0);
+  assert.ok(l.width >= 40 && l.height >= 12);
+  assert.ok(l.bodyHeight >= 6);
+  assert.ok(l.previewLines >= 4 && l.replayRows >= 4 && l.listRows >= 4);
+});
+
+test("pageLayout 高度增加时列表/预览/回放同步变多", () => {
+  const small = pageLayout(160, 24);
+  const large = pageLayout(160, 60);
+  assert.ok(large.listRows > small.listRows);
+  assert.ok(large.previewLines > small.previewLines);
+  assert.ok(large.replayRows > small.replayRows);
 });
