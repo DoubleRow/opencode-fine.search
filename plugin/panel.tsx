@@ -162,6 +162,13 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const busy = createMemo(() => summaryState() === "loading" || readState() === "loading");
 
+  // 面板首次打开时先给骨架，等侧栏展开动画（约 300ms）结束再拉数据，避免动画中换内容。
+  const [armed, setArmed] = createSignal(false);
+  onMount(() => {
+    const timer = setTimeout(() => setArmed(true), 320);
+    onCleanup(() => clearTimeout(timer));
+  });
+
   async function loadSummary() {
     const sessionId = hitSessionId();
     const token = ++summaryToken;
@@ -171,7 +178,6 @@ export function DetailPanel(props: DetailPanelProps) {
       setSummaryState("idle");
       return;
     }
-    setSummary(null);
     setSummaryError("");
     setSummaryState("loading");
     try {
@@ -201,7 +207,6 @@ export function DetailPanel(props: DetailPanelProps) {
     }
 
     const token = ++readToken;
-    setText("");
     setReadError("");
     setReadState("loading");
     try {
@@ -223,9 +228,9 @@ export function DetailPanel(props: DetailPanelProps) {
 
   createEffect(
     on(
-      () => hitSessionId(),
+      () => [hitSessionId(), armed()] as const,
       () => {
-        void loadSummary();
+        if (armed()) void loadSummary();
       },
       { defer: false },
     ),
@@ -233,10 +238,9 @@ export function DetailPanel(props: DetailPanelProps) {
 
   createEffect(
     on(
-      () => hit()?.segmentId,
+      () => [hit()?.segmentId, armed()] as const,
       () => {
-        setExpanded(false);
-        void loadText();
+        if (armed()) void loadText();
       },
       { defer: false },
     ),

@@ -69,6 +69,12 @@ export const DETAIL_PARTS_CSS = `
   color: var(--oc-muted, #9a9a9a); font-size: 12px; line-height: 1.7;
 }
 .oc-detail-error { color: #fca5a5; }
+.oc-detail-context.oc-detail-loading { min-height: 104px; }
+.oc-detail-context[data-stale="true"],
+.oc-detail-hit[data-stale="true"] {
+  opacity: .55;
+  transition: opacity 120ms linear;
+}
 .oc-detail-error button {
   margin-left: 6px; border: 1px solid var(--oc-line-strong, rgba(255,255,255,.14));
   border-radius: 5px; background: #242424; color: #dcdcdc;
@@ -136,22 +142,25 @@ export function SummaryBlock(props: SummaryBlockProps) {
       </div>
 
       <Show
-        when={props.state !== "loading" && props.state !== "idle"}
-        fallback={<div class="oc-detail-context oc-detail-loading">正在加载摘要…</div>}
+        when={props.state !== "error"}
+        fallback={
+          <div class="oc-detail-context oc-detail-error">
+            摘要加载失败：{props.error}
+            <button type="button" onClick={props.onRetry}>
+              重试
+            </button>
+          </div>
+        }
       >
         <Show
           when={props.summary}
-          fallback={
-            <div class="oc-detail-context oc-detail-error">
-              摘要加载失败：{props.error}
-              <button type="button" onClick={props.onRetry}>
-                重试
-              </button>
-            </div>
-          }
+          fallback={<div class="oc-detail-context oc-detail-loading">正在加载摘要…</div>}
         >
           {(value) => (
-            <div class="oc-detail-context">
+            <div
+              class="oc-detail-context"
+              data-stale={props.state === "loading" ? "true" : undefined}
+            >
               <div class="oc-detail-row">
                 <span class="k">大项目</span>
                 <span class="v">
@@ -196,21 +205,24 @@ export function TextBlock(props: TextBlockProps) {
       <div class="oc-detail-label">{props.label ?? "命中原文"}</div>
 
       <Show
-        when={props.state !== "loading" && props.state !== "idle"}
-        fallback={<div class="oc-detail-hit oc-detail-loading">正在加载原文…</div>}
+        when={props.state !== "error"}
+        fallback={
+          <div class="oc-detail-hit oc-detail-error">
+            原文加载失败：{props.error}
+            <button type="button" onClick={props.onRetry}>
+              重试
+            </button>
+          </div>
+        }
       >
         <Show
-          when={props.state !== "error"}
-          fallback={
-            <div class="oc-detail-hit oc-detail-error">
-              原文加载失败：{props.error}
-              <button type="button" onClick={props.onRetry}>
-                重试
-              </button>
-            </div>
-          }
+          when={props.text.length > 0}
+          fallback={<div class="oc-detail-hit oc-detail-loading">正在加载原文…</div>}
         >
-          <div class="oc-detail-hit">
+          <div
+            class="oc-detail-hit"
+            data-stale={props.state === "loading" ? "true" : undefined}
+          >
             <For each={lines().visible}>
               {(line, lineIndex) => (
                 <div class="oc-detail-line">
