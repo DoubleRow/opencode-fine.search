@@ -9,16 +9,23 @@ import {
   SEARCH_LIMIT,
   STREAM_PAGE,
   buildRows,
+  clipLines,
   dayLabel,
+  displayWidth,
   errorText,
   fitText,
   flatten,
   groupBySession,
+  highlightParts,
   nextFilter,
+  previewView,
   projectName,
   scrollStart,
+  sourceLabel,
   stepHits,
+  timeLabel,
   tokenLane,
+  wrapLine,
 } from "../plugin/tui-model.ts";
 
 test("常量与 GUI 口径一致", () => {
@@ -147,4 +154,55 @@ test("nextFilter 循环顺序与 GUI 一致", () => {
 
 test("常量 PAGE_HITS/LIST_WINDOW 为正", () => {
   assert.ok(PAGE_HITS > 0 && LIST_WINDOW > 0);
+});
+
+test("displayWidth/wrapLine 按显示宽度硬包", () => {
+  assert.equal(displayWidth("abc"), 3);
+  assert.equal(displayWidth("连接池"), 6);
+  assert.equal(wrapLine("").length, 1); // 空行也要占一行
+  const wrapped = wrapLine("一二三四五六七八九十", 10); // 20 当量 ÷ 10 = 2 行
+  assert.equal(wrapped.length, 2);
+  assert.equal(wrapped.join(""), "一二三四五六七八九十");
+  const mixed = wrapLine("ab连接池cd连接池", 10);
+  assert.ok(mixed.every((chunk) => displayWidth(chunk) <= 10));
+  assert.equal(mixed.join(""), "ab连接池cd连接池");
+});
+
+test("highlightParts 与 GUI 同语义：长词优先、大小写不敏感", () => {
+  const parts = highlightParts("OpenCode open code 连接池", ["open", "opencode", "连接"]);
+  assert.equal(parts[0].text, "OpenCode"); // 长词优先整词命中
+  assert.equal(parts[0].hit, true);
+  const joined = parts.map((p) => p.text).join("");
+  assert.equal(joined, "OpenCode open code 连接池");
+  assert.ok(parts.some((p) => p.text === "连接" && p.hit));
+  const none = highlightParts("干净文本", []);
+  assert.deepEqual(none, [{ text: "干净文本", hit: false }]);
+});
+
+test("sourceLabel 徽标", () => {
+  assert.equal(sourceLabel("llm"), "LLM");
+  assert.equal(sourceLabel("memory"), "记忆");
+  assert.equal(sourceLabel("auto"), "自动");
+  assert.equal(sourceLabel(""), "自动");
+});
+
+test("previewView 固定行数并提示隐藏", () => {
+  const text = Array.from({ length: 30 }, (_, i) => `第${i}行`).join("\n");
+  const view = previewView(text, 40, PREVIEW_LINES);
+  assert.equal(view.hidden, 30 - PREVIEW_LINES);
+  const last = view.lines[view.lines.length - 1];
+  assert.ok(last.includes(`另有 ${30 - PREVIEW_LINES} 行`));
+  assert.ok(view.lines[0].startsWith("第0行"));
+});
+
+test("clipLines 限行数并补省略号", () => {
+  const lines = clipLines("一\n二\n三\n四", 10, 2);
+  assert.equal(lines[0], "一");
+  assert.equal(lines[1], "二");
+  assert.equal(lines[2], "…");
+  assert.deepEqual(clipLines("单行", 10, 3), ["单行"]);
+});
+
+test("timeLabel 两位补零", () => {
+  assert.equal(timeLabel(new Date(2026, 0, 5, 8, 9).getTime()), "08:09");
 });

@@ -1,11 +1,12 @@
 /**
- * TUI 搜索对话框的纯逻辑：常量、错误文案、请求代次、结果行、导航。
+ * TUI 搜索对话框的纯逻辑：常量、错误文案、请求代次、结果行、导航、预览。
  *
  * 不依赖 DOM / Solid / OpenTUI，node:test 可直接引用（type-stripping）。
  */
 
 import type { SearchOutputItem } from "./rpc.ts";
 import { FILTERS, type OverlayFilter } from "./overlay-model.ts";
+import { collapseLines } from "./panel-model.ts";
 import { roleLabel } from "./stream-model.ts";
 
 /** 输入防抖：低于 GUI 侧感知阈值，避免每键一发 RPC。 */
@@ -96,7 +97,7 @@ export function dayLabel(ts: number, now: number = Date.now()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function timeLabel(ts: number): string {
+export function timeLabel(ts: number): string {
   const d = new Date(Number(ts) || 0);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -209,4 +210,124 @@ export function nextFilter(current: OverlayFilter): OverlayFilter {
   const ids = FILTERS.map((option) => option.id);
   const at = ids.indexOf(current);
   return ids[(at + 1) % ids.length] ?? "all";
+}
+
+/** 摘要来源徽标（与 GUI SummaryBlock 口径一致）。 */
+export function sourceLabel(source: string): string {
+  if (source === "llm") return "LLM";
+  if (source === "memory") return "记忆";
+  if (source === "auto") return "自动";
+  return source || "自动";
+}
+
+/**
+ * 预览列硬包宽度（字符当量）。终端比对话框实际宽度保守取值，
+ * 溢出由渲染层裁剪。
+ */
+export const PREVIEW_WIDTH = 70;
+
+/** 终端显示宽度估算：CJK 全角按 2，其余按 1。 */
+export function displayWidth(value: string): number {
+  let width = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    const full =
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0x303e) ||
+      (code >= 0x3041 && code <= 0x33ff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0xa000 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x20000 && code <= 0x2fffd);
+    width += full ? 2 : 1;
+  }
+  return width;
+}
+
+/** 按显示宽度硬包一行；空行返回 [""]，保证行数可预算。 */
+export function wrapLine(line: string, width: number = PREVIEW_WIDTH): string[] {
+  const limit = Math.max(8, Math.trunc(width) || PREVIEW_WIDTH);
+  const value = String(line ?? "");
+  if (!value) return [""];
+  const out: string[] = [];
+  let chunk = "";
+  let used = 0;
+  for (const char of value) {
+    const w = displayWidth(char);
+    if (used + w > limit && chunk) {
+      out.push(chunk);
+      chunk = "";
+      used = 0;
+    }
+    chunk += char;
+    used += w;
+  }
+  if (chunk) out.push(chunk);
+  return out;
+}
+
+export interface HighlightPart {
+  text: string;
+  hit: boolean;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 高亮切分：与 GUI detail-parts 的 highlightParts 同一算法
+ * （去重、长词优先、大小写不敏感），TUI 侧独立实现避免牵入 Web JSX。
+ */
+export function highlightParts(text: string, terms: readonly string[]): HighlightPart[] {
+  const source = String(text ?? "");
+  const words = [...new Set(terms.map((term) => term.trim()).filter(Boolean))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (!words.length) return [{ text: source, hit: false }];
+
+  const pattern = new RegExp(words.map(escapeRegExp).join("|"), "gi");
+  const parts: HighlightPart[] = [];
+  let last = 0;
+  for (const match of source.matchAll(pattern)) {
+    const at = match.index ?? 0;
+    if (at > last) parts.push({ text: source.slice(last, at), hit: false });
+    parts.push({ text: match[0], hit: true });
+    last = at + match[0].length;
+  }
+  if (last < source.length) parts.push({ text: source.slice(last), hit: false });
+  return parts.length ? parts : [{ text: source, hit: false }];
+}
+
+/** 把任意值裁成最多 max 行（按显示宽度硬包），超出补一行「…」。 */
+export function clipLines(value: string, width: number, max: number): string[] {
+  const limit = Math.max(1, Math.trunc(max) || 1);
+  const lines: string[] = [];
+  for (const source of String(value ?? "").split("\n")) {
+    lines.push(...wrapLine(source, width));
+  }
+  if (lines.length <= limit) return lines;
+  return [...lines.slice(0, limit), "…"];
+}
+
+/**
+ * 预览视图：与 GUI 相同口径——只显示前 limit 个源行（不锚定命中位置），
+ * 每行按宽度硬包；有隐藏行时追加一行提示。
+ */
+export function previewView(
+  text: string,
+  width: number = PREVIEW_WIDTH,
+  limit: number = PREVIEW_LINES,
+): { lines: string[]; hidden: number } {
+  const collapsed = collapseLines(text, false, limit);
+  const lines: string[] = [];
+  for (const line of collapsed.visible) lines.push(...wrapLine(line, width));
+  const hidden = collapsed.hidden;
+  if (hidden > 0) lines.push(`… 另有 ${hidden} 行（Tab 切到只读回放）`);
+  return { lines, hidden };
 }
