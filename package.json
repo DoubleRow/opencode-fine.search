@@ -1,14 +1,15 @@
 {
   "name": "opencode-fine.search",
-  "version": "0.0.0",
-  "description": "OpenCode 会话全文检索：GUI 插件 + 精确索引 + 语义 lane",
+  "version": "1.0.0",
+  "description": "OpenCode 会话全文检索：Desktop GUI + TUI 插件 + 旁路精确索引",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.11.2",
   "scripts": {
-    "build:gui": "vite build",
-    "dev:gui": "vite build --watch",
+    "build:gui": "vite build --config plugin/vite.config.ts",
+    "dev:gui": "vite build --config plugin/vite.config.ts --watch",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint plugin lib tests bin",
     "test": "node --test"
   },
   "devDependencies": {
@@ -20,6 +21,7 @@
     "@types/node": "26.6.6",
     "effect": "4.0.6",
     "electron": "45.2.2",
+    "oxlint": "^1.91.0",
     "solid-js": "1.9.18",
     "typescript": "5.9.3",
     "vite": "7.3.7",

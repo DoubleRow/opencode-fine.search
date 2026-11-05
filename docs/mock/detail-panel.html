@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>详情面板示意 v2</title>
+<style>
+  :root {
+    --bg: #141414;
+    --sidebar: #171717;
+    --panel: #1c1c1c;
+    --panel-2: #202020;
+    --line: rgba(255,255,255,.08);
+    --line-strong: rgba(255,255,255,.14);
+    --text: #e8e8e8;
+    --muted: #9a9a9a;
+    --faint: #6f6f6f;
+    --accent: #7aa2f7;
+    --hit: rgba(250, 204, 21, .28);
+    --hit-text: #fde68a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0d0d0d; }
+  body {
+    font: 13px/1.55 system-ui, -apple-system, "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    color: var(--text);
+    display: grid; place-items: center; padding: 24px;
+  }
+  .window {
+    width: min(1380px, 100%); height: min(860px, 100%);
+    background: var(--bg); border: 1px solid var(--line-strong);
+    border-radius: 12px; overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55);
+  }
+  .titlebar {
+    height: 38px; flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 0 12px; border-bottom: 1px solid var(--line); background: #121212; color: var(--muted);
+  }
+  .dots { display: flex; gap: 6px; margin-right: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #3a3a3a; }
+  .tab { padding: 4px 10px; border-radius: 6px; background: #1e1e1e; color: var(--text); border: 1px solid var(--line); font-size: 12px; }
+  .tab.dim { background: transparent; color: var(--faint); border-color: transparent; }
+  .titlebar .right { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 12px; }
+  .pill { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+  .sidebar {
+    width: 240px; flex: 0 0 auto; background: var(--sidebar);
+    border-right: 1px solid var(--line); padding: 10px 8px;
+    display: flex; flex-direction: column; gap: 4px; color: var(--muted);
+  }
+  .side-title { font-size: 11px; letter-spacing: .08em; color: var(--faint); padding: 6px 8px; }
+  .side-item { padding: 5px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-item.active { background: #242424; color: var(--text); }
+  .side-item .t { color: var(--faint); font-size: 11px; margin-left: 6px; }
+
+  .center { flex: 1; min-width: 0; padding: 18px 26px; display: flex; flex-direction: column; gap: 14px; color: var(--muted); overflow: hidden; }
+  .center h1 { font-size: 14px; font-weight: 600; color: #c9c9c9; margin: 0 0 2px; }
+  .msg { display: flex; gap: 10px; max-width: 640px; }
+  .avatar { width: 22px; height: 22px; border-radius: 6px; background: #2a2a2a; flex: 0 0 auto; }
+  .bubble { background: #1a1a1a; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #b9b9b9; }
+  .bubble .code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11px; color: #9aa7b8; }
+  .fade { opacity: .55; }
+
+  /* ---------- panel ---------- */
+  .panel {
+    width: clamp(360px, 31vw, 470px);
+    flex: 0 0 auto; background: var(--panel);
+    border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+    box-shadow: -18px 0 40px rgba(0,0,0,.25);
+  }
+  .panel-head {
+    height: 40px; flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 0 14px; border-bottom: 1px solid var(--line);
+  }
+  .panel-head .title { font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+  .panel-head .count { color: var(--faint); font-size: 11px; }
+  .panel-head .x { margin-left: auto; color: var(--faint); font-size: 14px; }
+
+  .panel-body {
+    flex: 1; min-height: 0; overflow: hidden;
+    padding: 14px 14px 10px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .meta-row { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .project {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #cfcfcf; background: #262626;
+    border: 1px solid var(--line); padding: 3px 8px; border-radius: 6px;
+    max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .project .sq { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); opacity: .85; flex: 0 0 auto; }
+  .when { margin-left: auto; color: var(--faint); font-size: 11px; white-space: nowrap; }
+
+  .session-title {
+    font-size: 15px; font-weight: 600; color: #f0f0f0; line-height: 1.4;
+    flex: 0 0 auto;
+    overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .kind { display: flex; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; }
+  .badge {
+    font-size: 11px; padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--line-strong); color: #bdbdbd; background: #232323;
+    white-space: nowrap;
+  }
+  .badge.tool { color: #d7c3ff; border-color: rgba(167,139,250,.35); background: rgba(167,139,250,.10); }
+
+  .section-label {
+    font-size: 11px; color: var(--faint); letter-spacing: .06em;
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  }
+  .section-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  .summary {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 11px; color: #c7c7c7;
+    font-size: 12px; line-height: 1.65; flex: 0 0 auto;
+    max-height: 34%; overflow: auto;
+  }
+  .summary .row { display: flex; gap: 8px; }
+  .summary .k { color: var(--faint); flex: 0 0 52px; font-size: 11px; padding-top: 2px; }
+  .summary .v { flex: 1; min-width: 0; }
+  .summary .v b { color: #ededed; font-weight: 600; }
+  .summary .row + .row { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+
+  .hit-wrap { flex: 1 1 auto; min-height: 120px; display: flex; flex-direction: column; min-width: 0; }
+  .hit {
+    background: #171717; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 10px 8px; margin-top: 6px;
+    font-family: ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+    font-size: 11.5px; line-height: 1.8; color: #b8b8b8;
+    white-space: pre-wrap; word-break: break-word;
+    flex: 1; min-height: 0; overflow: auto;
+  }
+  .hit .ln { color: #4d4d4d; user-select: none; margin-right: 8px; }
+  .hit mark { background: var(--hit); color: var(--hit-text); border-radius: 2px; padding: 0 1px; }
+  .hit .dim { color: #6a6a6a; }
+  .hit .ctx { color: #8f8f8f; }
+
+  .nav-row { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 11px; flex: 0 0 auto; padding: 2px 1px; }
+  .nav-row .spacer { flex: 1; }
+  .ghost {
+    border: 1px solid var(--line); background: #1f1f1f; color: #bdbdbd;
+    border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
+  }
+
+  .panel-foot {
+    flex: 0 0 auto; padding: 10px 14px; border-top: 1px solid var(--line);
+    display: flex; gap: 8px; align-items: center; background: #191919;
+  }
+  .btn {
+    border: 1px solid var(--line-strong); background: #242424; color: #dcdcdc;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; white-space: nowrap;
+  }
+  .btn.primary { background: #ededed; color: #141414; border-color: #ededed; font-weight: 600; }
+  .foot-hint { margin-left: auto; color: var(--faint); font-size: 11px; white-space: nowrap; }
+</style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="tab">OpenCode 搜索 P0 骨架</div>
+      <div class="tab dim">检查模型</div>
+      <div class="right"><span class="pill">Sidecar</span><span>⌘K</span></div>
+    </div>
+
+    <div class="body">
+      <aside class="sidebar">
+        <div class="side-title">项目</div>
+        <div class="side-item active">opencode-fine.search</div>
+        <div class="side-item">考研复习资料</div>
+        <div class="side-item">remotion 动画</div>
+        <div class="side-title" style="margin-top:8px">最近会话</div>
+        <div class="side-item">OpenCode 搜索 P0 骨架 <span class="t">08:08</span></div>
+        <div class="side-item">方案调研与工程初始化 <span class="t">05:33</span></div>
+        <div class="side-item">检查模型 <span class="t">昨天</span></div>
+      </aside>
+
+      <main class="center">
+        <h1>OpenCode 搜索 P0 骨架</h1>
+        <div class="msg">
+          <div class="avatar"></div>
+          <div class="bubble">把索引建起来，再验证 trigram 对中文短词的表现。</div>
+        </div>
+        <div class="msg fade">
+          <div class="avatar"></div>
+          <div class="bubble"><span class="code">node plugin/worker.mjs search 连接池 --limit 3</span><br/>命中 2 条（候选 29，模式 fts）</div>
+        </div>
+        <div class="msg fade">
+          <div class="avatar"></div>
+          <div class="bubble">索引 43 个会话 / 11,583 个片段，17 项测试通过。</div>
+        </div>
+        <div class="msg fade">
+          <div class="avatar"></div>
+          <div class="bubble">短词（1–2 字）会退回 LIKE 兜底，实测 12ms，不影响交互。</div>
+        </div>
+        <div class="msg fade">
+          <div class="avatar"></div>
+          <div class="bubble"><span class="code">pnpm test</span><br/>tests 17 · pass 17 · fail 0</div>
+        </div>
+      </main>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="title">全文检索 · 详情</span>
+          <span class="count">第 3 条 / 共 12 条</span>
+          <span class="x">✕</span>
+        </div>
+
+        <div class="panel-body">
+          <div class="meta-row">
+            <span class="project"><span class="sq"></span>opencode-fine.search</span>
+            <span class="when">11-04 08:08</span>
+          </div>
+
+          <div class="session-title">OpenCode 搜索 P0 骨架</div>
+
+          <div class="kind">
+            <span class="badge tool">工具输出</span>
+            <span class="badge">shell</span>
+            <span class="badge">查询：<mark style="background:var(--hit);color:var(--hit-text);border-radius:2px;padding:0 2px">连接池</mark></span>
+          </div>
+
+          <div class="section-label">上下文</div>
+          <div class="summary">
+            <div class="row">
+              <div class="k">大项目</div>
+              <div class="v"><b>opencode-fine.search</b> · 43 个会话 · 最近活跃 11-04</div>
+            </div>
+            <div class="row">
+              <div class="k">当时在做</div>
+              <div class="v">在 OpenCode 桌面端接入会话全文检索：建旁路 FTS5 索引，把正文命中追加到原生搜索框，并验证中文短词行为。</div>
+            </div>
+            <div class="row">
+              <div class="k">解决</div>
+              <div class="v">搜索从全表扫描 1.15s 降到毫秒级；43 个会话 / 11,583 个片段可检索，短词走 LIKE 兜底。</div>
+            </div>
+          </div>
+
+          <div class="hit-wrap">
+            <div class="section-label">命中原文</div>
+            <div class="hit"><span class="ln">06</span><span class="ctx">const db = new DatabaseSync(":memory:")</span>
+<span class="ln">07</span>db.exec(<span class="dim">"create virtual table t using fts5(text,</span>
+<span class="ln">08</span><span class="dim">  tokenize='trigram')"</span>);
+<span class="ln">09</span>db.prepare(<span class="dim">"insert into t(text) values (?)"</span>)
+<span class="ln">10</span>  .run(<span class="dim">'</span><mark>连接池</mark><span class="dim">的实现与向量化检索 embedding'</span>);
+<span class="ln">11</span>
+<span class="ln">12</span><span class="ctx">for (const q of ['<mark>连接池</mark>', '向量', 'embedding', '连接']) {</span>
+<span class="ln">13</span><span class="ctx">  try {</span>
+<span class="ln">14</span><span class="ctx">    console.log(q, db.prepare(</span>
+<span class="ln">15</span><span class="ctx">      "select rowid, text from t where t match ?"</span>
+<span class="ln">16</span><span class="ctx">    ).all('"' + q + '"'))</span>
+<span class="ln">17</span><span class="ctx">  } catch (e) { console.log(q, e.message) }</span>
+<span class="ln">18</span><span class="ctx">}</span>
+<span class="ln">19</span><span class="ctx">// 2 字词在 trigram 下命中 0，因此需要 LIKE 兜底</span>
+<span class="ln">20</span><span class="ctx">db.prepare("select count(*) from t where text like '%' || ? || '%'")</span></div>
+          </div>
+
+          <div class="nav-row">
+            <span>片段 3 / 12</span>
+            <span class="spacer"></span>
+            <span class="ghost">↑ 上一条</span>
+            <span class="ghost">↓ 下一条</span>
+          </div>
+        </div>
+
+        <div class="panel-foot">
+          <span class="btn primary">打开会话</span>
+          <span class="btn">复制原文</span>
+          <span class="foot-hint">Esc 关闭</span>
+        </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

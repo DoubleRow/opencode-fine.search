@@ -1,0 +1,107 @@
+/**
+ * 详情面板的纯逻辑：命中分组、自动打开窗口、折叠行数、标签。
+ * 不依赖 DOM / Solid，便于测试。
+ */
+
+import type { SearchOutputItem, SummarySource } from "./rpc.ts";
+
+export interface PendingSelection {
+  query: string;
+  hits: SearchOutputItem[];
+  at: number;
+}
+
+export interface DetailSelection extends PendingSelection {
+  index: number;
+}
+
+export function groupHitsBySession(items: SearchOutputItem[]): Map<string, SearchOutputItem[]> {
+  const groups = new Map<string, SearchOutputItem[]>();
+  for (const item of items) {
+    const list = groups.get(item.sessionId);
+    if (list) list.push(item);
+    else groups.set(item.sessionId, [item]);
+  }
+  return groups;
+}
+
+/** 5 秒内、当前会话命中时返回 pending；过期/不存在返回 undefined。 */
+export function pendingFor(
+  pending: Map<string, PendingSelection>,
+  sessionId: string,
+  now = Date.now(),
+  windowMs = 5000,
+): PendingSelection | undefined {
+  const entry = pending.get(sessionId);
+  if (!entry) return undefined;
+  if (now - entry.at > windowMs) return undefined;
+  return entry;
+}
+
+/** 浮层选中一条结果 → 详情面板的 selection（单条命中，无片段导航）。 */
+export function selectionFor(
+  query: string,
+  hit: SearchOutputItem,
+  at = Date.now(),
+  related?: readonly SearchOutputItem[],
+): DetailSelection {
+  // 同一会话的其他命中一起带上，详情栏的「上一条 / 下一条」才有内容。
+  const hits: SearchOutputItem[] = [];
+  const sameSession = (related ?? []).filter((entry) => entry.sessionId === hit.sessionId);
+  for (const entry of sameSession.length ? sameSession : [hit]) {
+    if (!hits.some((existing) => existing.segmentId === entry.segmentId)) hits.push(entry);
+  }
+  let index = hits.findIndex((entry) => entry.segmentId === hit.segmentId);
+  if (index < 0) {
+    hits.unshift(hit);
+    index = 0;
+  }
+  return { query, hits: [...hits], at, index };
+}
+
+/** 查询词拆成高亮词表；空查询返回空数组。 */
+export function termsOf(query: string | undefined): string[] {
+  return String(query ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+export function collapseLines(text: string, expanded: boolean, limit = 20) {
+  const lines = String(text ?? "").split("\n");
+  const total = lines.length;
+  const visible = expanded ? lines : lines.slice(0, limit);
+  return {
+    total,
+    visible,
+    canExpand: total > limit,
+    hidden: Math.max(0, total - limit),
+  };
+}
+
+const KIND_LABELS: Record<string, string> = {
+  user: "用户输入",
+  assistant: "助手回复",
+  reasoning: "思考过程",
+  tool: "工具输出",
+  system: "系统注入",
+  synthetic: "合成消息",
+  compaction: "压缩摘要",
+};
+
+export function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] || kind || "消息";
+}
+
+export function sourceLabel(source: SummarySource | string): string {
+  if (source === "llm") return "LLM";
+  if (source === "memory") return "记忆";
+  return "自动";
+}
+
+export function formatWhen(ts: number): string {
+  if (!ts) return "";
+  const date = new Date(ts);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
