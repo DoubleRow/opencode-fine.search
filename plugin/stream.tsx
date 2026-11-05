@@ -209,6 +209,10 @@ export function StreamView(props: StreamViewProps) {
     setItems([]);
     setOffset(0);
     setHasMore(false);
+    // 切换命中时上一次分页请求可能还在路上；它的 finally 会因 token 变化被丢弃，
+    // 这里必须手动复位，否则按钮会一直停在「加载中」。
+    setBusy(null);
+    setLoadingText(new Set<number>());
     setFullText(new Map<number, string>());
     setOpenThink(new Set<number>());
     try {
@@ -304,6 +308,35 @@ export function StreamView(props: StreamViewProps) {
     return previewText(item.text).clipped || item.truncated;
   }
 
+  /** 「展开本条 / 收起」：普通消息与展开后的思考共用。 */
+  function expandControls(item: StreamItem) {
+    return (
+      <>
+        <Show when={clipped(item)}>
+          <button
+            type="button"
+            class="oc-stream-expand"
+            disabled={loadingText().has(item.segmentId)}
+            onClick={() => void toggleText(item)}
+          >
+            {loadingText().has(item.segmentId)
+              ? "正在取全文…"
+              : `展开本条（共 ${item.length} 字）`}
+          </button>
+        </Show>
+        <Show when={fullText().has(item.segmentId)}>
+          <button
+            type="button"
+            class="oc-stream-expand"
+            onClick={() => void toggleText(item)}
+          >
+            收起
+          </button>
+        </Show>
+      </>
+    );
+  }
+
   createEffect(
     on(
       () => [props.sessionId, props.anchorSegmentId] as const,
@@ -326,7 +359,7 @@ export function StreamView(props: StreamViewProps) {
           <span class="oc-stream-badge current">当前会话</span>
         </Show>
         <span class="progress">
-          {offset() + 1}-{offset() + items().length} / {total()}
+          {total() ? `${offset() + 1}-${offset() + items().length} / ${total()}` : "0 / 0"}
         </span>
       </div>
 
@@ -342,7 +375,23 @@ export function StreamView(props: StreamViewProps) {
         }
       >
         <div class="oc-stream-list" ref={(element) => { listEl = element; }}>
-          <Show when={blocks().length} fallback={<div class="oc-stream-empty">正在加载会话流水…</div>}>
+          <Show
+            when={blocks().length}
+            fallback={
+              <div class="oc-stream-empty">
+                {state() === "loading" ? "正在加载会话流水…" : "这个会话没有可回放的片段。"}
+              </div>
+            }
+          >
+            <Show when={error()}>
+              <div class="oc-stream-error">
+                {error()}
+                <button type="button" onClick={() => void loadInitial()}>
+                  重新加载
+                </button>
+              </div>
+            </Show>
+
             <div class="oc-stream-morebar">
               <span class="spacer" />
               <button
@@ -387,6 +436,7 @@ export function StreamView(props: StreamViewProps) {
                                 <div class="oc-stream-reasoning">
                                   <Highlight text={textOf(item)} terms={terms()} />
                                 </div>
+                                {expandControls(item)}
                               </Show>
                             </>
                           }
@@ -428,29 +478,7 @@ export function StreamView(props: StreamViewProps) {
                             </div>
                           </Show>
 
-                          <Show when={clipped(item)}>
-                            <button
-                              type="button"
-                              class="oc-stream-expand"
-                              disabled={loadingText().has(item.segmentId)}
-                              onClick={() => void toggleText(item)}
-                            >
-                              {loadingText().has(item.segmentId)
-                                ? "正在取全文…"
-                                : fullText().has(item.segmentId)
-                                  ? "收起"
-                                  : `展开本条（共 ${item.length} 字）`}
-                            </button>
-                          </Show>
-                          <Show when={fullText().has(item.segmentId)}>
-                            <button
-                              type="button"
-                              class="oc-stream-expand"
-                              onClick={() => void toggleText(item)}
-                            >
-                              收起
-                            </button>
-                          </Show>
+                          {expandControls(item)}
                         </Show>
                       )}
                     </For>

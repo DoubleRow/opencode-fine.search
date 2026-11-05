@@ -43,8 +43,20 @@ export function selectionFor(
   query: string,
   hit: SearchOutputItem,
   at = Date.now(),
+  related?: readonly SearchOutputItem[],
 ): DetailSelection {
-  return { query, hits: [hit], at, index: 0 };
+  // 同一会话的其他命中一起带上，详情栏的「上一条 / 下一条」才有内容。
+  const hits: SearchOutputItem[] = [];
+  const sameSession = (related ?? []).filter((entry) => entry.sessionId === hit.sessionId);
+  for (const entry of sameSession.length ? sameSession : [hit]) {
+    if (!hits.some((existing) => existing.segmentId === entry.segmentId)) hits.push(entry);
+  }
+  let index = hits.findIndex((entry) => entry.segmentId === hit.segmentId);
+  if (index < 0) {
+    hits.unshift(hit);
+    index = 0;
+  }
+  return { query, hits: [...hits], at, index };
 }
 
 /** 查询词拆成高亮词表；空查询返回空数组。 */

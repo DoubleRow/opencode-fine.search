@@ -99,6 +99,14 @@ export default Plugin.define({
     /** 侧栏当前是否在「整段流水」模式，键为 `会话id:片段id`。 */
     const [streamKey, setStreamKey] = createSignal<string | null>(null);
 
+    /** 详情栏正在展示的那条命中（上一条 / 下一条会改 index，不能固定取 hits[0]）。 */
+    function currentHit(sessionId: string): SearchOutputItem | undefined {
+      const entry = selection[sessionId];
+      if (!entry || !entry.hits.length) return undefined;
+      const index = Math.max(0, Math.min(entry.index, entry.hits.length - 1));
+      return entry.hits[index];
+    }
+
     /** 搜索命中项的会话属于哪个 server：已开标签页优先，其次本机 builtin。 */
     function serverForSession(sessionId: string): string | undefined {
       for (const tab of ctx.tabs.list()) {
@@ -137,11 +145,11 @@ export default Plugin.define({
      * 面板按会话注册，所以挂到「当前会话」的 strip 上，内容由 selection 决定，
      * 即使命中来自别的会话也能预览。首页没有当前会话时返回，浮层只显示结果列表。
      */
-    function showDetail(item: SearchOutputItem, query: string) {
+    function showDetail(item: SearchOutputItem, query: string, hits?: SearchOutputItem[]) {
       const host = ctx.sessions.current();
       if (!host) return;
       setStreamKey(null);
-      setSelection(host.id, selectionFor(query, item));
+      setSelection(host.id, selectionFor(query, item, Date.now(), hits));
       if (ctx.layout.state(panelKey, host) !== "visible") {
         ctx.layout.open(panelKey, host, { tab: "select" });
       }
@@ -219,7 +227,11 @@ export default Plugin.define({
      * 浮层里按 Enter / 点结果：
      * 第一次在侧栏展开整段流水，第二次（面板已可见且是同一个片段）才打开标签页。
      */
-    function enterResult(item: SearchOutputItem, query: string): "open" | "stream" {
+    function enterResult(
+      item: SearchOutputItem,
+      query: string,
+      hits?: SearchOutputItem[],
+    ): "open" | "stream" {
       const host = ctx.sessions.current();
       if (!host) {
         openResult(item);
@@ -233,7 +245,7 @@ export default Plugin.define({
         return "open";
       }
 
-      showDetail(item, query);
+      showDetail(item, query, hits);
       setStreamKey(key);
       return "stream";
     }
@@ -288,15 +300,19 @@ export default Plugin.define({
           tab={props.tab}
           panelKey={panelKey}
           selection={() => selection[props.session.id]}
-          onIndex={(index) => setSelection(props.session.id, "index", index)}
+          onIndex={(index) => {
+            setSelection(props.session.id, "index", index);
+            // 换一条命中就退回预览，避免流水的锚点和当前条不一致。
+            setStreamKey(null);
+          }}
           onOpen={openResult}
           streaming={() => {
-            const hit = selection[props.session.id]?.hits[0];
+            const hit = currentHit(props.session.id);
             return !!hit && streamKey() === `${props.session.id}:${hit.segmentId}`;
           }}
           onExitStream={() => setStreamKey(null)}
           onExpandStream={() => {
-            const hit = selection[props.session.id]?.hits[0];
+            const hit = currentHit(props.session.id);
             if (hit) setStreamKey(`${props.session.id}:${hit.segmentId}`);
           }}
         />

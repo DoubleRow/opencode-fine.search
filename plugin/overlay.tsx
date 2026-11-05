@@ -197,10 +197,14 @@ export interface SearchOverlayProps {
   ctx: Context;
   open: () => boolean;
   onClose: () => void;
-  /** 选中项变化：驱动右侧详情栏。 */
-  onSelect: (item: SearchOutputItem, query: string) => void;
+  /** 选中项变化：驱动右侧详情栏；hits 是同一会话在当前筛选下的全部命中。 */
+  onSelect: (item: SearchOutputItem, query: string, hits: SearchOutputItem[]) => void;
   /** Enter / 点击结果：第一次展开侧栏流水，第二次打开标签页。 */
-  onEnter: (item: SearchOutputItem, query: string) => "open" | "stream";
+  onEnter: (
+    item: SearchOutputItem,
+    query: string,
+    hits: SearchOutputItem[],
+  ) => "open" | "stream";
   /** 详情栏是否真的显示在屏幕上：收起侧栏时它还在 DOM 里，但宽度不能算数。 */
   panelVisible: () => boolean;
 }
@@ -239,8 +243,13 @@ export function SearchOverlay(props: SearchOverlayProps) {
     return shown === total ? `${shown} 条` : `${shown} / ${total} 条`;
   });
 
+  /** 同一会话、当前筛选下的命中，供详情栏做上一条 / 下一条。 */
+  function hitsOf(item: SearchOutputItem) {
+    return results().filter((entry) => entry.sessionId === item.sessionId);
+  }
+
   function activate(item: SearchOutputItem) {
-    if (props.onEnter(item, query().trim()) === "open") props.onClose();
+    if (props.onEnter(item, query().trim(), hitsOf(item)) === "open") props.onClose();
   }
 
   function move(delta: number) {
@@ -385,7 +394,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
         const item = current();
         if (!item) return;
         selectTimer = setTimeout(() => {
-          props.onSelect(item, query().trim());
+          props.onSelect(item, query().trim(), hitsOf(item));
           // 侧栏展开约 300ms，等它停稳再量，避免追着动画每帧移动。
           setTimeout(measureCard, 380);
         }, SELECT_DEBOUNCE_MS);

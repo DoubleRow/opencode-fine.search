@@ -216,6 +216,7 @@ export function DetailPanel(props: DetailPanelProps) {
       },
     ),
   );
+  onCleanup(() => clearTimeout(viewTimer));
   onMount(() => {
     const timer = setTimeout(() => setArmed(true), 320);
     onCleanup(() => clearTimeout(timer));

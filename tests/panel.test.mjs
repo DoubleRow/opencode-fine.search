@@ -78,3 +78,27 @@ test("面板标签", () => {
   assert.match(formatWhen(1_700_000_000_000), /^\d{2}-\d{2} \d{2}:\d{2}$/);
   assert.equal(formatWhen(0), "");
 });
+test("同会话多条命中一起进 selection，并定位到当前条", () => {
+  const first = hit("ses_a", 1);
+  const second = hit("ses_a", 2);
+  const third = hit("ses_a", 3);
+  const other = hit("ses_b", 9);
+
+  const selection = selectionFor("连接池", second, 1000, [first, second, third, other]);
+  assert.equal(selection.index, 1);
+  assert.deepEqual(
+    selection.hits.map((entry) => entry.segmentId),
+    [1, 2, 3],
+  );
+});
+
+test("命中项不在同会话列表里时补到最前，且去重", () => {
+  const first = hit("ses_a", 1);
+  const second = hit("ses_a", 2);
+  const selection = selectionFor("连接池", second, 1000, [first, first]);
+  assert.equal(selection.index, 0);
+  assert.deepEqual(
+    selection.hits.map((entry) => entry.segmentId),
+    [2, 1],
+  );
+});

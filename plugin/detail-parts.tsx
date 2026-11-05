@@ -191,7 +191,7 @@ export interface TextBlockProps {
   navEnd?: JSX.Element;
 }
 
-/** 命中原文：默认 20 行折叠，可展开；底部一行放折叠按钮与自定义导航。 */
+/** 命中原文：固定 20 行，超出部分走只读回放。 */
 export function TextBlock(props: TextBlockProps) {
   const lines = createMemo(() => collapseLines(props.text, false));
 
