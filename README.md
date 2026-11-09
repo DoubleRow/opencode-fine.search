@@ -58,7 +58,7 @@
 
 ## 安装
 
-前置：Node ≥ 22.5（使用内置 `node:sqlite`）、pnpm、OpenCode 2.2.5（GUI/TUI 均实测于此版本）。
+前置：Node ≥ 22.5（使用内置 `node:sqlite`）、pnpm、OpenCode ≥ 2.2.5（开发与构建的类型依赖已对齐 2.2.6）。
 
 ```bash
 pnpm install      # 只有开发依赖；运行时依赖为 0

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 未发布
+
+### 维护
+
+- 类型依赖 `@opencode/client` / `@opencode/plugin` / `@opencode/theme` 由 2.2.5 升至 2.2.6，插件 `peerDependencies` 同步；
+  无业务改动，GUI 产物字节不变。2.2.6 的类型变更为纯新增（`Panel.width`、`CodeBlock`、`Ui.Select`、
+  `Ui.SettingsLayout`、`Theme` 等），本项目未接用。
+
 ## 1.0.0 — 2026-11-05
 
 首个同时提供 **Desktop GUI** 与 **TUI** 的版本。
