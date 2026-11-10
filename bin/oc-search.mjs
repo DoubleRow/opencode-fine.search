@@ -58,7 +58,20 @@ const opts = {
 };
 const terms = [];
 
-for (let i = 0; i < argv.length; i++) {
+function usageError(message) {
+  process.stderr.write(`${message}\n\n${USAGE}`);
+  process.exit(2);
+}
+
+/** 取选项值：缺值或下一个 token 是另一个选项都视为参数错误。 */
+function takeValue(flag) {
+  const value = argv[++i];
+  if (value === undefined || value.startsWith("-")) usageError(`选项 ${flag} 缺少取值`);
+  return value;
+}
+
+let i = 0;
+while (i < argv.length) {
   const a = argv[i];
   if (a === "-h" || a === "--help") {
     process.stdout.write(USAGE);
@@ -69,15 +82,18 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--json") opts.json = true;
   else if (a === "--list") opts.list = true;
   else if (a === "--no-color") opts.color = false;
-  else if (a === "--limit") opts.limit = Number(argv[++i]) || 20;
-  else if (a === "--session") opts.session = argv[++i] || null;
-  else if (a === "--dir") opts.dir = argv[++i] || null;
-  else if (a === "--type") opts.type = argv[++i] || null;
-  else if (a === "--since") opts.since = argv[++i] || null;
-  else if (a.startsWith("-")) {
-    process.stderr.write(`未知选项: ${a}\n\n${USAGE}`);
-    process.exit(2);
-  } else terms.push(a);
+  else if (a === "--limit") {
+    const raw = takeValue(a);
+    const limit = Number(raw);
+    if (!Number.isInteger(limit) || limit < 1) usageError(`选项 --limit 需要正整数: ${raw}`);
+    opts.limit = limit;
+  } else if (a === "--session") opts.session = takeValue(a);
+  else if (a === "--dir") opts.dir = takeValue(a);
+  else if (a === "--type") opts.type = takeValue(a);
+  else if (a === "--since") opts.since = takeValue(a);
+  else if (a.startsWith("-")) usageError(`未知选项: ${a}`);
+  else terms.push(a);
+  i++;
 }
 
 // ---------- 数据库 ----------
@@ -183,23 +199,39 @@ if (opts.since && Number.isNaN(sinceMs)) {
   process.exit(2);
 }
 
+// 过滤条件下推到 SQL：避免把全库 data（本机实测数百 MB）一次性读进内存。
+const where = [];
+const params = [];
+if (opts.type) {
+  where.push("m.type = ?");
+  params.push(opts.type);
+}
+if (opts.session) {
+  where.push("substr(m.session_id, 1, ?) = ?");
+  params.push(opts.session.length, opts.session);
+}
+if (opts.dir) {
+  where.push("instr(lower(ifnull(s.directory, '')), lower(?)) > 0");
+  params.push(opts.dir);
+}
+if (sinceMs) {
+  where.push("m.time_created >= ?");
+  params.push(sinceMs);
+}
+
 const sql = `
   SELECT m.session_id sid, m.type, m.time_created ts, m.data d,
          s.title, s.directory
   FROM session_message m
   LEFT JOIN session_v2 s ON s.id = m.session_id
+  ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
   ORDER BY m.time_created DESC
 `;
 
-const rows = db.prepare(sql).all();
 const hits = [];
 
-for (const r of rows) {
-  if (opts.type && r.type !== opts.type) continue;
-  if (opts.session && !r.sid.startsWith(opts.session)) continue;
-  if (opts.dir && !(r.directory || "").includes(opts.dir)) continue;
-  if (sinceMs && r.ts < sinceMs) continue;
-
+// 流式逐行读取：命中数量达到 limit 立即停止，不再扫完整个库。
+for (const r of db.prepare(sql).iterate(...params)) {
   for (const p of extractParts(r.d, r.type)) {
     if (p.kind === "reasoning" && !opts.includeReasoning) continue;
     if (p.kind === "tool" && opts.noTools) continue;

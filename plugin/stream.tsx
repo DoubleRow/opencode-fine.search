@@ -277,17 +277,28 @@ export function StreamView(props: StreamViewProps) {
     }
 
     setLoadingText(new Set(loadingText()).add(item.segmentId));
+    // 切换会话后旧响应必须丢弃，否则旧 segmentId 的全文会写进新会话的展开状态。
+    const my = token;
     try {
       const result = (await props.ctx.client.rpc(SearchRpc).read({
         segmentId: item.segmentId,
       })) as ReadOutput;
+      if (my !== token) return;
       setFullText(new Map(fullText()).set(item.segmentId, result.text ?? ""));
-    } catch {
-      // 取全文失败时保留截断文本，不阻塞阅读。
+    } catch (cause) {
+      if (my !== token) return;
+      // 保留截断文本继续可读，但失败必须让用户看见。
+      props.ctx.toast.show({
+        title: "展开失败",
+        description: errorText(cause) || "取全文失败",
+        variant: "error",
+      });
     } finally {
-      const next = new Set(loadingText());
-      next.delete(item.segmentId);
-      setLoadingText(next);
+      if (my === token) {
+        const next = new Set(loadingText());
+        next.delete(item.segmentId);
+        setLoadingText(next);
+      }
     }
   }
 

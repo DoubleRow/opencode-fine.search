@@ -2,6 +2,21 @@
 
 ## 未发布
 
+### 修复
+
+- **CLI `oc-search`**：`--limit abc` / `--limit 0` / 选项缺值不再静默回退默认，统一按用法错误返回 2；
+  检索改为流式 `iterate()` 并把类型、会话、目录、日期条件下推到 SQL，避免全量载入消息正文导致内存暴涨。
+- **索引就绪状态**：FTS 查询失败只在「查询被 trigram 拒绝」时降级 LIKE，磁盘/索引损坏改为向上抛错，
+  不再伪装成空结果；sidecar 的「索引未就绪」改为结构化 `not_ready { reason }` 返回前端。
+- **增量同步**：统一使用 `fingerprintOf` 生成消息指纹，消除 worker 与 `lib/extract.mjs` 的两份口径。
+- **RPC 超时**：单次调用 30s 未响应即终止 sidecar 并在下次调用时重建，避免请求永久悬挂。
+- **GUI/TUI 竞态**：切换命中时立即作废在途的摘要/原文/展开请求；切换命中后旧全文不再写进新状态；
+  已在本页再次 `/fs <关键词>` 会真正执行新检索，而不是被忽略。
+- **错误可见性**：复制原文、展开全文失败都会弹出错误提示，不再静默吞掉。
+- **AGENTS.md**：结构说明与实际文件对齐（`lib/summary.mjs`，同步与协议内嵌于 `plugin/worker.mjs`）。
+
+## 1.0.0 — 2026-11-05
+
 ### 维护
 
 - 类型依赖 `@opencode/client` / `@opencode/plugin` / `@opencode/theme` 由 2.2.5 升至 2.2.6，插件 `peerDependencies` 同步；

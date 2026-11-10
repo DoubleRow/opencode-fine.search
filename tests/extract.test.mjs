@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractSegments, scrubDataUris } from "../lib/extract.mjs";
+import { extractSegments, fingerprintOf, scrubDataUris } from "../lib/extract.mjs";
 
 const DATA_URI = `data:image/png;base64,${"A".repeat(200)}`;
 
@@ -132,4 +132,11 @@ test("scrubDataUris 只替换长 base64，不误伤普通 data: 文本", () => {
   const scrubbed = scrubDataUris(`前缀 ${DATA_URI} 后缀`);
   assert.match(scrubbed, /\[data URI 已省略\]/);
   assert.ok(!scrubbed.includes("AAAAAAAA"));
+});
+
+test("fingerprintOf 对时间或长度变化都敏感", () => {
+  const base = { time_updated: 100, data_length: 10 };
+  assert.equal(fingerprintOf(base), fingerprintOf({ time_updated: 100, data_length: 10 }));
+  assert.notEqual(fingerprintOf(base), fingerprintOf({ time_updated: 101, data_length: 10 }));
+  assert.notEqual(fingerprintOf(base), fingerprintOf({ time_updated: 100, data_length: 11 }));
 });

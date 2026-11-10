@@ -11,7 +11,7 @@
 
 import type { Context, Route } from "@opencode/plugin/tui/context";
 import type { RGBA } from "@opentui/core";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 
 import {
   SearchRpc,
@@ -322,6 +322,9 @@ export function FineSearchPage(props: FineSearchPageProps) {
   createEffect(() => {
     const hit = selectedHit();
     if (previewTimer !== undefined) clearTimeout(previewTimer);
+    // 选中一变就作废在途请求：否则防抖窗口内旧响应会落成「新命中 + 旧原文」。
+    summaryLane.begin();
+    readLane.begin();
     if (!hit) {
       setSummary(null);
       setSegment(null);
@@ -331,6 +334,19 @@ export function FineSearchPage(props: FineSearchPageProps) {
     }
     previewTimer = setTimeout(() => void loadPreview(hit), DEBOUNCE_MS);
   });
+
+  // 已在本页时再次 /fs <关键词>：路由 data 变了但组件不重挂，这里补一次真正的检索。
+  createEffect(
+    on(
+      () => props.initialQuery,
+      (value) => {
+        const next = value.trim();
+        if (!next || next === query()) return;
+        void runSearch(next);
+      },
+      { defer: true },
+    ),
+  );
 
   const replayRowsMemo = createMemo<ReplayLine[]>(() =>
     replayLines(streamItems(), {
@@ -507,6 +523,10 @@ export function FineSearchPage(props: FineSearchPageProps) {
     if (view() !== "replay") return;
     const hit = selectedHit();
     if (!hit || hit.segmentId === anchorSegment()) return;
+    // 换锚点前作废旧锚点的「展开全文」请求，否则旧全文会挂到新命中上。
+    expandLane.begin();
+    setAnchorExpanded(false);
+    setAnchorFullText(null);
     void loadStreamInitial(hit);
   });
 

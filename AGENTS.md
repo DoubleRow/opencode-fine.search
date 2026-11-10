@@ -37,16 +37,17 @@
 
 ```
 bin/oc-search          CLI 启动器（sh）
-bin/oc-search.mjs      CLI 实现
-lib/extract.mjs        消息 → 片段（规则集中在此）
-lib/index-db.mjs       FTS5 schema / 建库 / 查询
-lib/sync.mjs           会话指纹增量同步
-lib/query.mjs          分级检索 + 排序 + 片段
-lib/protocol.mjs       stdio JSON-RPC
-plugin/                OpenCode 插件（server + GUI + 后续 TUI）
-plugin/worker.mjs      Node sidecar（node:sqlite）
+bin/oc-search.mjs      CLI 实现（直接读会话库，独立于旁路索引）
+lib/extract.mjs        消息 → 片段、数据 URI 清洗、增量指纹
+lib/index-db.mjs       FTS5 schema / 建库 / 检索 / 回放（含 query 与排序）
+lib/summary.mjs        会话摘要（本项目 + opencode-mem 记忆合并）
+plugin/                OpenCode 插件（server + GUI + TUI）
+plugin/worker.mjs      Node sidecar（node:sqlite）：同步、RPC 协议与 CLI 分发
 tests/                 node --test
 ```
+
+> 注：增量同步（`sync`）与 stdio JSON-RPC 协议目前内嵌在 `plugin/worker.mjs`，
+> 尚未拆成独立的 `lib/sync.mjs` / `lib/protocol.mjs`。
 
 旁路索引：`~/.local/share/opencode-oc-search/index.db`（权限 600，可删可重建）。
 

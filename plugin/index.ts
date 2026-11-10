@@ -25,6 +25,9 @@ import {
 
 const WORKER_PATH = fileURLToPath(new URL("./worker.mjs", import.meta.url));
 
+/** 单次 RPC 上限：sidecar 挂起时不能让调用方无限等待。 */
+const CALL_TIMEOUT_MS = 30_000;
+
 class SidecarError extends Error {
   readonly code: string;
 
@@ -99,6 +102,8 @@ class Sidecar {
 
     const id = this.#nextId++;
     return new Promise<T>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+
       const onAbort = () => {
         const pending = this.#pending.get(id);
         if (!pending) return;
@@ -108,6 +113,7 @@ class Sidecar {
       };
 
       const cleanup = () => {
+        if (timer !== undefined) clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
       };
 
@@ -124,6 +130,12 @@ class Sidecar {
       });
 
       signal?.addEventListener("abort", onAbort, { once: true });
+
+      timer = setTimeout(() => {
+        if (!this.#pending.has(id)) return;
+        this.#abortHung(method);
+      }, CALL_TIMEOUT_MS);
+      timer.unref?.();
 
       try {
         child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
@@ -229,6 +241,25 @@ class Sidecar {
     if (!source || this.#child === source) this.#child = null;
   }
 
+  /** 超时视为 sidecar 挂起：终止进程并让下一次调用重新拉起，避免后续请求全部堵死。 */
+  #abortHung(method: string) {
+    const reason = `sidecar 超过 ${Math.round(CALL_TIMEOUT_MS / 1000)}s 未响应（${method}），已终止并将在下次调用时重建`;
+    const child = this.#child;
+    this.#child = null;
+    this.#failAll(new SidecarError(reason, "timeout"), child ?? undefined);
+    if (!child) return;
+    try {
+      child.stdin.end();
+    } catch {
+      // 进程可能已退出。
+    }
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // 忽略。
+    }
+  }
+
   dispose() {
     const child = this.#child;
     this.#child = null;
@@ -295,6 +326,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 就绪类故障要带结构化 reason 交给前端，不能一律压成 index_error。 */
+function isNotReady(error: unknown): boolean {
+  return error instanceof SidecarError && error.code === "not_ready";
+}
+
 export default Plugin.define({
   id: "opencode-fine.search",
   async setup(ctx) {
@@ -310,6 +346,10 @@ export default Plugin.define({
         try {
           return await sidecar.call<SearchOutput>("search", params, context.signal);
         } catch (error) {
+          if (isNotReady(error)) {
+            const reason = messageOf(error);
+            return context.error("not_ready", reason, { reason });
+          }
           const message = messageOf(error);
           return context.error("index_error", message, { message });
         }
@@ -327,6 +367,10 @@ export default Plugin.define({
         } catch (error) {
           if (error instanceof SidecarError && error.code === "not_found") {
             return context.error("not_found", error.message, { segmentId });
+          }
+          if (isNotReady(error)) {
+            const reason = messageOf(error);
+            return context.error("not_ready", reason, { reason });
           }
           const message = messageOf(error);
           return context.error("index_error", message, { message });
@@ -357,6 +401,10 @@ export default Plugin.define({
           if (error instanceof SidecarError && error.code === "not_found") {
             return context.error("not_found", error.message, { sessionId });
           }
+          if (isNotReady(error)) {
+            const reason = messageOf(error);
+            return context.error("not_ready", reason, { reason });
+          }
           const message = messageOf(error);
           return context.error("index_error", message, { message });
         }
@@ -374,6 +422,10 @@ export default Plugin.define({
         } catch (error) {
           if (error instanceof SidecarError && error.code === "not_found") {
             return context.error("not_found", error.message, { sessionId });
+          }
+          if (isNotReady(error)) {
+            const reason = messageOf(error);
+            return context.error("not_ready", reason, { reason });
           }
           const message = messageOf(error);
           return context.error("index_error", message, { message });

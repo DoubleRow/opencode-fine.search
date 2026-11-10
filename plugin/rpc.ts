@@ -121,6 +121,12 @@ export const SearchRpc = Rpc.define({
           required: ["segmentId"],
           additionalProperties: false,
         },
+        not_ready: {
+          type: "object",
+          properties: { reason: { type: "string" } },
+          required: ["reason"],
+          additionalProperties: false,
+        },
         index_error: {
           type: "object",
           properties: { message: { type: "string" } },
@@ -197,6 +203,12 @@ export const SearchRpc = Rpc.define({
           required: ["sessionId"],
           additionalProperties: false,
         },
+        not_ready: {
+          type: "object",
+          properties: { reason: { type: "string" } },
+          required: ["reason"],
+          additionalProperties: false,
+        },
         index_error: {
           type: "object",
           properties: { message: { type: "string" } },
@@ -230,6 +242,12 @@ export const SearchRpc = Rpc.define({
           type: "object",
           properties: { sessionId: { type: "string" } },
           required: ["sessionId"],
+          additionalProperties: false,
+        },
+        not_ready: {
+          type: "object",
+          properties: { reason: { type: "string" } },
+          required: ["reason"],
           additionalProperties: false,
         },
         index_error: {

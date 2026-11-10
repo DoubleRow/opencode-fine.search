@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 
-import { extractSegments } from "../lib/extract.mjs";
+import { extractSegments, fingerprintOf } from "../lib/extract.mjs";
 import {
   INDEX_PATH,
   deleteIndexMessage,
@@ -60,9 +60,15 @@ function log(message) {
   }
 }
 
+function sourcedError(message, code = "internal") {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function sourceInfo() {
   if (!existsSync(SOURCE_DB)) {
-    throw new Error(`找不到 OpenCode 会话库: ${SOURCE_DB}`);
+    throw sourcedError(`找不到 OpenCode 会话库: ${SOURCE_DB}`, "not_ready");
   }
   const stat = statSync(SOURCE_DB);
   return { path: SOURCE_DB, mtime: Math.floor(stat.mtimeMs), size: stat.size };
@@ -73,14 +79,24 @@ function openSource() {
   try {
     return new DatabaseSync(SOURCE_DB, { readOnly: true });
   } catch (error) {
-    throw new Error(
+    throw sourcedError(
       `无法只读打开会话库: ${SOURCE_DB}\n${error instanceof Error ? error.message : String(error)}`,
+      "not_ready",
     );
   }
 }
 
 function getIndex() {
-  if (!indexDb) indexDb = openIndex(INDEX_PATH);
+  if (!indexDb) {
+    try {
+      indexDb = openIndex(INDEX_PATH);
+    } catch (error) {
+      throw sourcedError(
+        `索引不可用: ${error instanceof Error ? error.message : String(error)}`,
+        "not_ready",
+      );
+    }
+  }
   return indexDb;
 }
 
@@ -176,8 +192,7 @@ export function sync() {
         !old ||
         old.session_id !== String(row.session_id) ||
         old.type !== String(row.type) ||
-        old.time_updated !== (Number(row.time_updated) || 0) ||
-        old.data_length !== (Number(row.data_length) || 0)
+        fingerprintOf(old) !== fingerprintOf(row)
       ) {
         changed.push(row);
         if (old) updated += 1;
@@ -774,20 +789,22 @@ function closeIndex() {
 
 async function main() {
   const argv = process.argv.slice(2);
+  // 用 exitCode 而不是 process.exit：大 JSON 输出走管道时，立即退出可能丢掉尾部未刷出的数据。
   try {
     if (argv[0] === "--serve" || argv[0] === "serve") {
       const code = await serve();
       closeIndex();
-      process.exit(code);
+      process.exitCode = code;
+      return;
     }
 
     const code = await runCli(argv);
     closeIndex();
-    process.exit(code);
+    process.exitCode = code;
   } catch (error) {
     process.stderr.write(`oc-search 失败: ${error?.message || error}\n`);
     closeIndex();
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

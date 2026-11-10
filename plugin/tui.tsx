@@ -52,9 +52,17 @@ export default Plugin.define({
 
 function openPage(context: Context, input?: string): void {
   const current = context.ui.router.current();
-  // 已经在本页时再调 /fs 不再压栈，避免把「返回目标」覆盖成自己。
-  if (current.type === "plugin" && current.name === PAGE_NAME) return;
   const query = typeof input === "string" ? input.trim() : "";
+  if (current.type === "plugin" && current.name === PAGE_NAME) {
+    // 已在本页：不再 push（避免把「返回目标」覆盖成自己），但仍要执行新查询词。
+    if (!query) return;
+    context.ui.router.navigate({
+      type: "plugin",
+      name: PAGE_NAME,
+      data: { ...current.data, query },
+    });
+    return;
+  }
   context.ui.router.navigate({
     type: "plugin",
     name: PAGE_NAME,

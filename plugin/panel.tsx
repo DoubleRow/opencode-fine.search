@@ -310,9 +310,18 @@ export function DetailPanel(props: DetailPanelProps) {
   }
 
   async function copyText() {
-    if (!text()) return;
-    await props.ctx.system.copy(text());
-    props.ctx.toast.show({ title: "已复制原文", variant: "success", icon: "check" });
+    const value = text();
+    if (!value) return;
+    try {
+      await props.ctx.system.copy(value);
+      props.ctx.toast.show({ title: "已复制原文", variant: "success", icon: "check" });
+    } catch (error) {
+      props.ctx.toast.show({
+        title: "复制失败",
+        description: errorText(error) || "剪贴板不可用",
+        variant: "error",
+      });
+    }
   }
 
   function openSession() {
