@@ -41,15 +41,15 @@ export const DETAIL_PARTS_CSS = `
 .oc-detail-row .v b { color: #ededed; font-weight: 600; }
 .oc-detail-hit-wrap { flex: 1 1 auto; min-height: 120px; min-width: 0; display: flex; flex-direction: column; }
 .oc-detail-hit {
-  flex: 1; min-height: 0; overflow: auto;
+  flex: 1; min-height: 0; min-width: 0; overflow: auto;
   margin-top: 6px; padding: 10px 10px 8px;
   border: 1px solid var(--oc-line, rgba(255,255,255,.08)); border-radius: 8px; background: #171717;
   color: #b8b8b8; font-family: ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
   font-size: 11.5px; line-height: 1.8;
 }
-.oc-detail-line { display: flex; white-space: pre-wrap; word-break: break-word; }
+.oc-detail-line { display: flex; min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 .oc-detail-line .ln { flex: 0 0 26px; color: #4d4d4d; user-select: none; }
-.oc-detail-line .code { min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.oc-detail-line .code { min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 .oc-detail-line mark {
   background: var(--oc-hit, rgba(250,204,21,.28));
   color: var(--oc-hit-text, #fde68a); border-radius: 2px; padding: 0 1px;

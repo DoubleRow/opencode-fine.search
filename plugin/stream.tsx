@@ -40,6 +40,8 @@ export const STREAM_CSS = `
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   color: var(--oc-s-text);
   background: var(--v2-background-bg-layer-01, #1c1c1c);
 }
@@ -75,10 +77,11 @@ export const STREAM_CSS = `
   padding: 1px 7px; cursor: pointer; white-space: nowrap;
 }
 .oc-stream-bar .back:hover { border-color: var(--oc-s-accent); color: var(--oc-s-text); }
-.oc-stream-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.oc-stream-list { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; }
 .oc-stream-msg {
   padding: 12px 14px 14px;
   border-bottom: 1px solid var(--oc-s-line);
+  min-width: 0;
   content-visibility: auto;
   contain-intrinsic-size: auto 140px;
 }
@@ -97,25 +100,30 @@ export const STREAM_CSS = `
 }
 .oc-stream-text {
   font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
+  overflow-wrap: anywhere; max-width: 100%;
 }
 .oc-stream-text mark { background: var(--oc-s-hit); color: var(--oc-s-hit-text); border-radius: 2px; }
 .oc-stream-user {
   font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
+  overflow-wrap: anywhere; max-width: 100%;
   background: var(--oc-s-layer); border-radius: 8px; padding: 10px 12px;
 }
 .oc-stream-user mark { background: var(--oc-s-hit); color: var(--oc-s-hit-text); border-radius: 2px; }
 .oc-stream-tool {
   margin: 6px 0 0; border-radius: 6px; background: #171717;
   border: 1px solid var(--oc-s-line);
+  min-width: 0; max-width: 100%;
 }
 .oc-stream-tool .cap {
   display: flex; align-items: center; gap: 6px; padding: 5px 9px;
   border-bottom: 1px solid var(--oc-s-line); color: var(--oc-s-faint); font-size: 11px;
 }
 .oc-stream-tool pre {
-  margin: 0; padding: 8px 10px; overflow-x: auto;
+  margin: 0; padding: 8px 10px; max-width: 100%;
+  /* 随面板宽度换行：表格/宽行不再被右侧裁掉，也不需要横向滚动。 */
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden;
   font-family: ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
-  font-size: 12px; line-height: 1.7; color: #b8b8b8; white-space: pre;
+  font-size: 12px; line-height: 1.7; color: #b8b8b8;
 }
 .oc-stream-tool pre mark { background: var(--oc-s-hit); color: var(--oc-s-hit-text); }
 .oc-stream-think {
@@ -127,9 +135,10 @@ export const STREAM_CSS = `
 .oc-stream-think:hover { border-color: var(--oc-s-accent); color: var(--oc-s-text); }
 .oc-stream-reasoning {
   font-size: 12.5px; line-height: 1.7; color: var(--oc-s-muted);
-  white-space: pre-wrap; word-break: break-word; padding: 6px 2px 0 2px;
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; max-width: 100%;
+  padding: 6px 2px 0 2px;
 }
-.oc-stream-sys { font-size: 11.5px; line-height: 1.7; color: var(--oc-s-faint); white-space: pre-wrap; }
+.oc-stream-sys { font-size: 11.5px; line-height: 1.7; color: var(--oc-s-faint); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .oc-stream-morebar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
 .oc-stream-morebar .spacer { flex: 1; }
 .oc-stream-morebar button {

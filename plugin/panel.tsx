@@ -77,7 +77,7 @@ export const DETAIL_CSS = `
 }
 .oc-detail-head .x:hover { color: var(--oc-text); }
 .oc-detail-body {
-  flex: 1; min-height: 0; overflow: hidden;
+  flex: 1; min-height: 0; min-width: 0; overflow: hidden;
   padding: 14px 14px 10px;
   display: flex; flex-direction: column; gap: 10px;
 }
@@ -109,12 +109,12 @@ export const DETAIL_CSS = `
   padding: 10px 14px; border-top: 1px solid var(--oc-line); background: #191919;
 }
 .oc-detail-hint { margin-left: auto; color: var(--oc-faint); font-size: 11px; white-space: nowrap; }
-.oc-detail-views { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.oc-detail-views { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
 /* 宿主拖侧栏时会临时把 body 设成 user-select:none，这里显式恢复可选，按钮/导航保持不可选。 */
 .oc-detail { user-select: text; -webkit-user-select: text; }
 .oc-detail-head, .oc-detail-nav, .oc-detail-foot, .oc-detail-badges,
 .oc-detail button { user-select: none; -webkit-user-select: none; }
-.oc-detail-view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.oc-detail-view { flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; display: flex; flex-direction: column; }
 .oc-detail-view[data-state="leaving"] {
   position: absolute; inset: 0; pointer-events: none; opacity: 0;
   transform: translateY(-6px) scale(.995);

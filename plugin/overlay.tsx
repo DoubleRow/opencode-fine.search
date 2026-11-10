@@ -229,6 +229,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
   let searchToken = 0;
   let inputEl: HTMLInputElement | undefined;
   let cardEl: HTMLDivElement | undefined;
+  let listEl: HTMLDivElement | undefined;
 
   const terms = createMemo(() => termsOf(query()));
   const results = createMemo(() => filterItems(raw(), filter()));
@@ -383,6 +384,36 @@ export function SearchOverlay(props: SearchOverlayProps) {
     on(results, () => {
       setActive(0);
     }),
+  );
+
+  /**
+   * 选中行始终留在列表可视区内：上下各留一个行高的余量，
+   * 否则键盘 ↓ 到可视区底部后选中项会滚出视野（列表不跟随）。
+   */
+  createEffect(
+    on(
+      activeIndex,
+      () => {
+        const list = listEl;
+        if (!list) return;
+        const row = list.querySelector<HTMLElement>('.oc-overlay-row[data-active="true"]');
+        if (!row) return;
+        const listRect = list.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        // 用 rect 差值换算内容坐标：浮层卡片是 absolute 定位，offsetTop 不可靠。
+        const top = rowRect.top - listRect.top + list.scrollTop;
+        const bottom = top + rowRect.height;
+        const viewTop = list.scrollTop;
+        const viewBottom = viewTop + list.clientHeight;
+        const pad = rowRect.height;
+        if (top - pad < viewTop) {
+          list.scrollTop = Math.max(0, top - pad);
+        } else if (bottom + pad > viewBottom) {
+          list.scrollTop = Math.max(0, bottom + pad - list.clientHeight);
+        }
+      },
+      { defer: true },
+    ),
   );
 
   // 选中项 / 查询词变化 → 120ms 后把命中项交给右侧详情栏。
@@ -550,7 +581,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
           <span class="oc-overlay-count">{countText()}</span>
         </div>
 
-        <div class="oc-overlay-list" role="listbox" aria-label="搜索结果">
+        <div class="oc-overlay-list" role="listbox" aria-label="搜索结果" ref={(element) => { listEl = element; }}>
           <Show
             when={query().trim()}
             fallback={
