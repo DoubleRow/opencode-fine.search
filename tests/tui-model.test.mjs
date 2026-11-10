@@ -140,16 +140,23 @@ test("stepHits 跳过分组头并循环", () => {
   assert.equal(stepHits([], 0, 1), -1); // 空列表
 });
 
-test("scrollStart 保证选中可见且尽量少动", () => {
+test("scrollStart 保证选中可见、上下各留一行余量", () => {
   const visible = LIST_WINDOW;
   const count = 40;
   assert.equal(scrollStart(0, 3, count, visible), 0);
-  assert.equal(scrollStart(0, 20, count, visible), 20 - visible + 1);
+  // 下移越界：选中行停在倒数第二行，底部留一行余量。
+  const down = scrollStart(0, 20, count, visible);
+  assert.equal(down, 20 - visible + 2);
+  assert.ok(20 - down === visible - 2, "选中行下方应还剩一行");
   assert.equal(scrollStart(10, 5, count, visible), 4); // 向上露一行上下文
   assert.equal(scrollStart(30, 39, count, visible), count - visible); // prev 越界先收敛，选中已在窗内不动
   assert.equal(scrollStart(999, 0, count, visible), 0); // prev 越界自动收敛
   assert.equal(scrollStart(0, -1, count, visible), 0);
   assert.equal(scrollStart(0, 1, 0, visible), 0);
+  // 靠近末尾时被 maxStart 夹住，仍保证选中可见。
+  const tail = scrollStart(0, count - 1, count, visible);
+  assert.equal(tail, count - visible);
+  assert.ok(count - 1 - tail < visible);
 });
 
 test("nextFilter 循环顺序与 GUI 一致", () => {
@@ -172,6 +179,18 @@ test("displayWidth/wrapLine 按显示宽度硬包", () => {
   const mixed = wrapLine("ab连接池cd连接池", 10);
   assert.ok(mixed.every((chunk) => displayWidth(chunk) <= 10));
   assert.equal(mixed.join(""), "ab连接池cd连接池");
+});
+
+test("displayWidth 对 emoji 与零宽组合符按终端实际占位估算", () => {
+  // emoji 实际占 2 格：低估会让 wrapLine 换行后行尾被终端裁掉。
+  assert.equal(displayWidth("🚀"), 2);
+  assert.equal(displayWidth("a🚀b"), 4);
+  // 变体选择符/零宽连接符不占格。
+  assert.equal(displayWidth("❤️"), 2); // U+2764(2) + U+FE0F(0)
+  assert.equal(displayWidth("👨‍👩‍👦"), 6); // 三个 emoji 各 2，ZWJ 记 0（高估但不会被裁）
+  const emojiLines = wrapLine("🚀🚀🚀🚀🚀", 8); // wrapLine 最小宽度 8
+  assert.ok(emojiLines.every((chunk) => displayWidth(chunk) <= 8));
+  assert.equal(emojiLines.length, 2);
 });
 
 test("highlightParts 与 GUI 同语义：长词优先、大小写不敏感", () => {
@@ -322,6 +341,7 @@ test("pageLayout 宽屏：两栏 + 分隔线正好填满宽度", () => {
     assert.ok(l.right >= 24);
     assert.ok(l.listRows >= 4 && l.previewLines >= 4 && l.replayRows >= 4);
     assert.ok(l.listTextWidth > 0 && l.textWidth > 0);
+    assert.ok(l.replayWidth > 0 && l.replayWidth <= l.textWidth, "回放宽度不应超过正文宽度");
   }
 });
 

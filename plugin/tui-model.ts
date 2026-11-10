@@ -83,6 +83,8 @@ export interface PageLayout {
   readonly replayRows: number;
   /** 右栏正文换行宽度。 */
   readonly textWidth: number;
+  /** 右栏回放换行宽度：比正文再留 1 格余量，避免行尾被渲染层裁掉。 */
+  readonly replayWidth: number;
   /** 左栏每行的可用宽度（扣掉光标与缩进）。 */
   readonly listTextWidth: number;
 }
@@ -108,6 +110,9 @@ export function pageLayout(width: number, height: number): PageLayout {
     previewLines: Math.max(4, bodyHeight - RIGHT_CHROME),
     replayRows: Math.max(4, bodyHeight - 4),
     textWidth: Math.max(20, right - 2),
+    // 右栏实际可用宽度是 right - 1（左边距 1 格）；再让出 1 格，
+    // 抵消宽字符/emoji 估算偏差，避免行尾被裁。
+    replayWidth: Math.max(19, right - 3),
     listTextWidth: Math.max(16, left - 4),
   };
 }
@@ -270,7 +275,9 @@ export function scrollStart(
   const maxStart = Math.max(0, count - win);
   const current = Math.max(0, Math.min(Math.trunc(prev) || 0, maxStart));
   if (index < current) return Math.max(0, index - 1);
-  if (index >= current + win) return Math.min(index - win + 1, maxStart);
+  // 下移越界时也留一行余量（与向上分支的 index - 1 对称），
+  // 否则选中行贴着列表底边框，看不出「还有下一行」。
+  if (index >= current + win) return Math.min(index - win + 2, maxStart);
   return current;
 }
 
@@ -295,27 +302,51 @@ export function sourceLabel(source: string): string {
  */
 export const PREVIEW_WIDTH = 70;
 
-/** 终端显示宽度估算：CJK 全角按 2，其余按 1。 */
+/** 终端显示宽度估算：CJK 全角按 2，零宽组合符按 0，其余按 1。 */
 export function displayWidth(value: string): number {
   let width = 0;
   for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    const full =
-      (code >= 0x1100 && code <= 0x115f) ||
-      (code >= 0x2e80 && code <= 0x303e) ||
-      (code >= 0x3041 && code <= 0x33ff) ||
-      (code >= 0x3400 && code <= 0x4dbf) ||
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0xa000 && code <= 0xa4cf) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe30 && code <= 0xfe6f) ||
-      (code >= 0xff00 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6) ||
-      (code >= 0x20000 && code <= 0x2fffd);
-    width += full ? 2 : 1;
+    width += charWidth(char.codePointAt(0) ?? 0);
   }
   return width;
+}
+
+/**
+ * 单字符占位宽。宁可高估也不要低估：低估会让 `wrapLine` 算出刚好合适的换行，
+ * 实际渲染超宽后被终端裁掉行尾（emoji 最典型，实际 2 格却按 1 计）。
+ */
+function charWidth(code: number): number {
+  // 零宽：组合用附加符、变体选择符、零宽连接符等，不占格。
+  if (
+    (code >= 0x0300 && code <= 0x036f) ||
+    (code >= 0x1ab0 && code <= 0x1aff) ||
+    (code >= 0x1dc0 && code <= 0x1dff) ||
+    (code >= 0x200b && code <= 0x200f) ||
+    (code >= 0x20d0 && code <= 0x20ff) ||
+    (code >= 0xfe00 && code <= 0xfe0f) ||
+    (code >= 0xfe20 && code <= 0xfe2f) ||
+    code === 0xfeff
+  ) {
+    return 0;
+  }
+  const full =
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0x303e) ||
+    (code >= 0x3041 && code <= 0x33ff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0xa000 && code <= 0xa4cf) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe10 && code <= 0xfe19) ||
+    (code >= 0xfe30 && code <= 0xfe6f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x1f000 && code <= 0x1faff) || // emoji、图形符号补充区
+    (code >= 0x2600 && code <= 0x27bf) || // 杂项/装饰符号，多为 emoji 呈现
+    (code >= 0x2b00 && code <= 0x2bff) || // 箭头与图形符号
+    (code >= 0x20000 && code <= 0x2fffd);
+  return full ? 2 : 1;
 }
 
 /** 按显示宽度硬包一行；空行返回 [""]，保证行数可预算。 */

@@ -151,8 +151,11 @@ export function FineSearchPage(props: FineSearchPageProps) {
   const hitRows = createMemo(() => rows().filter((row) => row.type === "hit"));
   const windowed = createMemo(() => {
     const all = rows();
-    const from = Math.max(0, Math.min(start(), all.length));
-    return all.slice(from, from + layout().listRows);
+    const visible = Math.max(1, layout().listRows);
+    // start 只是「尽量少动」的提示：终端变矮、结果变少或选中落在窗外时在这里收敛，
+    // 否则选中行会跑到可见选框之外、窗口却不跟着翻页。
+    const from = scrollStart(start(), sel(), all.length, visible);
+    return { from, rows: all.slice(from, from + visible) };
   });
   const selectedHit = createMemo<SearchOutputItem | null>(() => {
     const row = rows()[sel()];
@@ -354,7 +357,7 @@ export function FineSearchPage(props: FineSearchPageProps) {
       showReasoning: showReasoning(),
       anchorExpanded: anchorExpanded(),
       anchorFullText: anchorFullText(),
-      width: layout().textWidth,
+      width: layout().replayWidth,
     }),
   );
 
@@ -395,7 +398,7 @@ export function FineSearchPage(props: FineSearchPageProps) {
         showReasoning: showReasoning(),
         anchorExpanded: false,
         anchorFullText: null,
-        width: layout().textWidth,
+        width: layout().replayWidth,
       });
       const at = firstLineIndexFor(lines, hit.segmentId);
       setReplayScroll(Math.max(0, at - 4));
@@ -754,8 +757,9 @@ export function FineSearchPage(props: FineSearchPageProps) {
       return rows;
     }
     if (state === "error") return [{ text: errorLine(), color: theme.text.muted }];
-    return windowed().map((row: TuiRow, i) => {
-      const isSel = row.type === "hit" && start() + i === sel();
+    const from = windowed().from;
+    return windowed().rows.map((row: TuiRow, i) => {
+      const isSel = row.type === "hit" && from + i === sel();
       const prefix = row.type === "hit" && isSel ? "❯ " : "  ";
       return {
         text: clipDisplay(prefix + row.text, layout().listTextWidth),
@@ -839,7 +843,10 @@ export function FineSearchPage(props: FineSearchPageProps) {
         rows.push({ text: "这个会话没有可回放的片段。", color: theme.text.faint });
       }
       for (const line of replayWindow()) {
-        rows.push({ text: clipDisplay(line.text, w), color: replayToneColor(line) });
+        rows.push({
+          text: clipDisplay(line.text, layout().replayWidth),
+          color: replayToneColor(line),
+        });
       }
       if (streamBusy() === "after") rows.push({ text: "加载更后…", color: theme.text.muted });
     }
