@@ -223,13 +223,16 @@ export function SearchOverlay(props: SearchOverlayProps) {
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let selectTimer: ReturnType<typeof setTimeout> | undefined;
   let measureTimer: ReturnType<typeof setTimeout> | undefined;
-  let safetyTimer: ReturnType<typeof setInterval> | undefined;
+  /** 打开浮层后的补测定时器：侧栏展开动画不会逐帧发事件。 */
+  let openTimer: ReturnType<typeof setTimeout> | undefined;
   let panelObserver: ResizeObserver | undefined;
   let observedPanel: HTMLElement | null = null;
   let searchToken = 0;
   let inputEl: HTMLInputElement | undefined;
   let cardEl: HTMLDivElement | undefined;
   let listEl: HTMLDivElement | undefined;
+  /** 只有键盘移动才自动滚动：悬停/滚动引起的 active 变化不应该拽动列表。 */
+  let keyboardNav = false;
 
   const terms = createMemo(() => termsOf(query()));
   const results = createMemo(() => filterItems(raw(), filter()));
@@ -256,7 +259,32 @@ export function SearchOverlay(props: SearchOverlayProps) {
   function move(delta: number) {
     const count = results().length;
     if (count < 1) return;
-    setActive(stepIndex(activeIndex(), delta, count));
+    const next = stepIndex(activeIndex(), delta, count);
+    if (next === activeIndex()) return;
+    // 标记来源：随后的 scrollTop 校正只服务键盘导航。
+    keyboardNav = true;
+    setActive(next);
+  }
+
+  /** 把当前选中行滚进列表可视区，上下各留一个行高余量。 */
+  function scrollActiveIntoView() {
+    const list = listEl;
+    if (!list) return;
+    const row = list.querySelector<HTMLElement>('.oc-overlay-row[data-active="true"]');
+    if (!row) return;
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    // 用 rect 差值换算内容坐标：浮层卡片是 absolute 定位，offsetTop 不可靠。
+    const top = rowRect.top - listRect.top + list.scrollTop;
+    const bottom = top + rowRect.height;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+    const pad = rowRect.height;
+    if (top - pad < viewTop) {
+      list.scrollTop = Math.max(0, top - pad);
+    } else if (bottom + pad > viewBottom) {
+      list.scrollTop = Math.max(0, bottom + pad - list.clientHeight);
+    }
   }
 
   /**
@@ -387,30 +415,27 @@ export function SearchOverlay(props: SearchOverlayProps) {
   );
 
   /**
-   * 选中行始终留在列表可视区内：上下各留一个行高的余量，
-   * 否则键盘 ↓ 到可视区底部后选中项会滚出视野（列表不跟随）。
+   * 键盘 ↓/↑ 后把选中行留在可视区内；鼠标移动引起的 active 变化不滚动。
    */
   createEffect(
     on(
       activeIndex,
       () => {
-        const list = listEl;
-        if (!list) return;
-        const row = list.querySelector<HTMLElement>('.oc-overlay-row[data-active="true"]');
-        if (!row) return;
-        const listRect = list.getBoundingClientRect();
-        const rowRect = row.getBoundingClientRect();
-        // 用 rect 差值换算内容坐标：浮层卡片是 absolute 定位，offsetTop 不可靠。
-        const top = rowRect.top - listRect.top + list.scrollTop;
-        const bottom = top + rowRect.height;
-        const viewTop = list.scrollTop;
-        const viewBottom = viewTop + list.clientHeight;
-        const pad = rowRect.height;
-        if (top - pad < viewTop) {
-          list.scrollTop = Math.max(0, top - pad);
-        } else if (bottom + pad > viewBottom) {
-          list.scrollTop = Math.max(0, bottom + pad - list.clientHeight);
-        }
+        if (!keyboardNav) return;
+        keyboardNav = false;
+        scrollActiveIntoView();
+      },
+      { defer: true },
+    ),
+  );
+
+  // 重新打开浮层时选中项可能还停在上次的位置，但列表滚动位置不会自动跟随。
+  createEffect(
+    on(
+      () => props.open(),
+      (value) => {
+        if (!value) return;
+        requestAnimationFrame(scrollActiveIntoView);
       },
       { defer: true },
     ),
@@ -487,16 +512,17 @@ export function SearchOverlay(props: SearchOverlayProps) {
   createEffect(
     on(() => props.open(), (value) => {
       clearTimeout(measureTimer);
-      clearInterval(safetyTimer);
+      clearTimeout(openTimer);
       if (!value) {
         panelObserver?.disconnect();
         observedPanel = null;
         return;
       }
       requestAnimationFrame(measureCard);
-      setTimeout(measureCard, 380);
-      // 兜底：布局变化没触发事件时，600ms 补量一次（值没变不会写信号）。
-      safetyTimer = setInterval(measureCard, 600);
+      // 卡片入场与侧栏展开是过渡动画，没有逐帧事件；只在开头补两次测量，
+      // 之后交给 ResizeObserver / window.resize（不再常驻轮询）。
+      scheduleMeasure(380);
+      openTimer = setTimeout(measureCard, 1200);
     }),
   );
 
@@ -504,7 +530,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
     clearTimeout(searchTimer);
     clearTimeout(selectTimer);
     clearTimeout(measureTimer);
-    clearInterval(safetyTimer);
+    clearTimeout(openTimer);
     panelObserver?.disconnect();
   });
 
@@ -603,7 +629,7 @@ export function SearchOverlay(props: SearchOverlayProps) {
                       type="button"
                       class="oc-overlay-row"
                       data-active={index() === activeIndex() ? "true" : "false"}
-                      onMouseEnter={() => setActive(index())}
+                      onMouseMove={() => setActive(index())}
                       onClick={() => {
                         setActive(index());
                         activate(item);

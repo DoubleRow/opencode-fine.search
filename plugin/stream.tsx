@@ -82,8 +82,6 @@ export const STREAM_CSS = `
   padding: 12px 14px 14px;
   border-bottom: 1px solid var(--oc-s-line);
   min-width: 0;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 140px;
 }
 .oc-stream-msg[data-hit="true"] {
   background: rgba(250,204,21,.05);
@@ -206,8 +204,15 @@ export function StreamView(props: StreamViewProps) {
 
   function scrollToAnchor() {
     requestAnimationFrame(() => {
-      const node = listEl?.querySelector<HTMLElement>('[data-hit="true"]');
-      node?.scrollIntoView({ block: "center" });
+      const list = listEl;
+      const node = list?.querySelector<HTMLElement>('[data-hit="true"]');
+      if (!list || !node) return;
+      // 只动流列表自己的 scrollTop：scrollIntoView 会连带滚动外层可滚祖先。
+      const listRect = list.getBoundingClientRect();
+      const nodeRect = node.getBoundingClientRect();
+      const top = nodeRect.top - listRect.top + list.scrollTop;
+      const centered = top - Math.max(0, (list.clientHeight - nodeRect.height) / 2);
+      list.scrollTop = Math.max(0, centered);
     });
   }
 
