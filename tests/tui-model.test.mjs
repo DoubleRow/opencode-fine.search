@@ -121,7 +121,7 @@ test("buildRows 生成可跳过的分组头与命中行", () => {
   assert.equal(rows[3].type, "hit");
 });
 
-test("stepHits 跳过分组头并循环", () => {
+test("stepHits 跳过分组头，到首尾停住", () => {
   const rows = buildRows([
     item(),
     item({ segmentId: 2 }),
@@ -134,9 +134,11 @@ test("stepHits 跳过分组头并循环", () => {
   assert.equal(stepHits(rows, 1, 1), 2); // 前进一跳仍在命中
   assert.equal(stepHits(rows, 2, 1), 4); // 跨过分隔头到下一组
   assert.equal(stepHits(rows, 4, -1), 2); // 反向跨组
-  assert.equal(stepHits(rows, 5, 1), 1); // 循环到最前
-  assert.equal(stepHits(rows, 1, -1), 5); // 循环到最后
+  assert.equal(stepHits(rows, 5, 1), 5); // 末尾不环回
+  assert.equal(stepHits(rows, 1, -1), 1); // 开头不环回
   assert.equal(stepHits(rows, 1, 2), 4); // PgDn 语义：两跳（命中 1→2→4，跳过分组头）
+  assert.equal(stepHits(rows, 4, 9), 5); // 大步长夹到末尾
+  assert.equal(stepHits(rows, 4, -9), 1); // 大步长夹到开头
   assert.equal(stepHits([], 0, 1), -1); // 空列表
 });
 

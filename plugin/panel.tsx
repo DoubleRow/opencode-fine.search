@@ -306,7 +306,9 @@ export function DetailPanel(props: DetailPanelProps) {
   function go(delta: number) {
     const count = total();
     if (count < 2) return;
-    props.onIndex((index() + delta + count) % count);
+    // 到首/尾停住，不环回：环回会让回放从底部瞬间跳回顶部。
+    const next = Math.max(0, Math.min(index() + delta, count - 1));
+    if (next !== index()) props.onIndex(next);
   }
 
   async function copyText() {

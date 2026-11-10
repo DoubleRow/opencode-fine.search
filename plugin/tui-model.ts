@@ -247,6 +247,10 @@ export function buildRows(
  * 在命中行之间步进 delta 条（delta>1 用于 PgUp/PgDn）。
  * 当前不在命中行时：正向进第一条，逆向进最后一条；无命中返回 -1。
  */
+/**
+ * 命中间导航：跳过分组头，到首/尾停住（不环回）。
+ * index 不在命中行上时：向前取第一条，向后取最后一条。
+ */
 export function stepHits(rows: readonly TuiRow[], index: number, delta: number): number {
   const hits: number[] = [];
   rows.forEach((row, i) => {
@@ -256,7 +260,7 @@ export function stepHits(rows: readonly TuiRow[], index: number, delta: number):
   const step = Math.trunc(delta) || 0;
   let pos = hits.indexOf(index);
   if (pos === -1) pos = step >= 0 ? -1 : hits.length;
-  const next = ((pos + step) % hits.length + hits.length) % hits.length;
+  const next = Math.max(0, Math.min(pos + step, hits.length - 1));
   return hits[next];
 }
 

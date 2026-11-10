@@ -82,10 +82,10 @@ export function clampIndex(index: number, count: number): number {
   return value;
 }
 
-/** 在 [0, count-1] 上循环移动；空列表返回 0。 */
+/** 在 [0, count-1] 上移动，到边界停住；空列表返回 0。 */
 export function stepIndex(index: number, delta: number, count: number): number {
   if (count <= 0) return 0;
   const step = Math.trunc(Number(delta) || 0);
-  const current = ((Math.trunc(Number(index) || 0) % count) + count) % count;
-  return (((current + step) % count) + count) % count;
+  const current = Math.max(0, Math.min(Math.trunc(Number(index) || 0), count - 1));
+  return Math.max(0, Math.min(current + step, count - 1));
 }

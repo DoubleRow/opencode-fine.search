@@ -68,11 +68,11 @@ test("索引夹取：越界与空列表", () => {
   assert.equal(clampIndex(Number.NaN, 3), 0);
 });
 
-test("↑↓ 在结果上循环移动", () => {
+test("↑↓ 在结果上移动，到首尾停住", () => {
   assert.equal(stepIndex(0, 1, 3), 1);
-  assert.equal(stepIndex(2, 1, 3), 0);
-  assert.equal(stepIndex(0, -1, 3), 2);
-  assert.equal(stepIndex(5, 1, 3), 0);
+  assert.equal(stepIndex(2, 1, 3), 2); // 末尾不环回
+  assert.equal(stepIndex(0, -1, 3), 0); // 开头不环回
+  assert.equal(stepIndex(5, 1, 3), 2); // 越界先夹取
   assert.equal(stepIndex(1, 0, 3), 1);
   assert.equal(stepIndex(0, 1, 0), 0);
 });

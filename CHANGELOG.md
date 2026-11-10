@@ -24,6 +24,8 @@
   自动滚动只服务键盘导航；重开浮层时把选中行滚回视野。
 - **GUI 性能**：去掉浮层 600ms 常驻测量轮询，改为打开时补测 + ResizeObserver；
   回放块去掉 `content-visibility` 避免换行后高度估算导致的滚动跳动；锚点定位只改流列表自身 `scrollTop`。
+- **首尾导航不环回**：GUI 浮层 `stepIndex`、详情栏上/下一条、TUI `stepHits` 全部改为到边界停住，
+  不再从最后一条跳回第一条。
 - **AGENTS.md**：结构说明与实际文件对齐（`lib/summary.mjs`，同步与协议内嵌于 `plugin/worker.mjs`）。
 
 ## 1.0.0 — 2026-11-05
