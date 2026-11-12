@@ -4,6 +4,25 @@
 新增能力走 MINOR，破坏性变更走 MAJOR。每个正式版本发布时同步更新 `package.json` 与 `plugin/package.json`
 的 `version`，并把「未发布」段落切成带日期的版本标题。条目按 `新增 / 变更 / 修复 / 移除 / 性能 / 文档` 归类。
 
+## 1.0.2 — 2026-11-12
+
+对齐 OpenCode 2.2.7：类型依赖升级，插件 API 无破坏性变更，运行时行为不变。
+
+### 维护
+
+- 类型依赖 `@opencode/client` / `@opencode/plugin` / `@opencode/theme` 由 2.2.6 升至 2.2.7，
+  插件 `peerDependencies` 同步；GUI 产物字节不变（`dist/gui-experimental.cjs` 55.91 kB）。
+- 2.2.7 的插件 API 变更为纯新增：`experimental.model.resolve` hook（单次请求前可改写所用模型，
+  用于 Copilot Auto 之类的路由模型），本项目未接用，类型与行为均未受影响。
+- 2.2.7 已知运行时变化（不涉及本插件）：`rpc.call` / `artifact.*` / `integration.list` 等端点不再等待
+  插件加载完成，插件提供的条目改为在加载完成后由 `*.updated` 事件补上。
+- 桌面端侧栏标签新增 `⌘W` 关闭、`⌘⇧T` 重开、右键「关闭右侧标签」；本插件的详情栏按普通侧栏标签使用，
+  无需改动。
+
+### 测试
+
+- 门禁保持 90 项全绿：`typecheck` 无输出、`lint` 0 告警、`test` 90 pass / 0 fail。
+
 ## 1.0.1 — 2026-11-10
 
 一次代码审查 + 交互回归后的修复版本：CLI 输入校验与内存占用、索引就绪语义、RPC 超时、
