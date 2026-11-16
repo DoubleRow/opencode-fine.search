@@ -287,7 +287,7 @@ tests/panel.test.mjs       自动打开匹配窗口（可纯函数化）
 | 记忆 API 私有、依赖 4747 | 失败静默降级；token 只在 server 读 |
 | LLM 回填有额度成本 | 默认跳过已有摘要；`--dry-run` 先看量；`--limit` 可控 |
 | 自动打开误触发 | 5 秒窗口 + 仅搜索命中 + 一次性清除 |
-| 面板 API 为 experimental | 锁定 OpenCode 2.2.5；面板层薄，逻辑在 lib |
+| 面板 API 为 experimental | 锁定 OpenCode 2.2.5（SDK 已升至 2.3.0，面板 API 无变化）；面板层薄，逻辑在 lib |
 | 原文行数计算与渲染不一致 | 统一按 `\n` 计数，测试覆盖 |
 | 会话标题 + 首条消息可能重复 | 标题为空时才用首条消息 |
 
