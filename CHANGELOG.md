@@ -4,6 +4,26 @@
 新增能力走 MINOR，破坏性变更走 MAJOR。每个正式版本发布时同步更新 `package.json` 与 `plugin/package.json`
 的 `version`，并把「未发布」段落切成带日期的版本标题。条目按 `新增 / 变更 / 修复 / 移除 / 性能 / 文档` 归类。
 
+## 1.0.3 — 2026-11-16
+
+对齐 OpenCode 2.3.0：SDK 类型依赖与连带 peer 升级，插件 API 无破坏性变更，本机宿主已是 2.3.0。
+
+### 维护
+
+- 类型依赖 `@opencode/client` / `@opencode/plugin` / `@opencode/theme` 由 2.2.7 升至 2.3.0。
+- 连带升级 peer 链：`@opentui/core` / `@opentui/solid` 0.8.2 → 0.8.4（`plugin@2.3.0` 要求 `>=0.8.4`），
+  `effect` 4.0.6 → 4.1.0（`client@2.3.0` 要求精确 `4.1.0`）；插件 `peerDependencies` 同步为
+  `@opencode/plugin` `2.3.0`、`@opentui/*` `>=0.8.4`。
+- 本插件依赖的三个入口 `Plugin.define`、`ctx.rpc.register`、`ctx.event.subscribe` 类型签名未变；
+  `dist/gui/*.js` 与 2.2.7 逐字节一致，GUI 产物 `dist/gui-experimental.cjs` 保持 55.91 kB
+  （sha256 `99a8ad4e…` 前后相同）。
+- 2.2.7 → 2.3.0 的 API 变更为增量：会话请求消息增加只读 `metadata`、工具上下文新增 `cancel` 协作停止信号、
+  OAuth `integration.submit` 透传粘贴的跳转 URL、图标集新增 `outline-maximize`；本项目均未接用，无需改代码。
+
+### 测试
+
+- 门禁保持 90 项全绿：`typecheck` 无输出、`lint` 0 告警、`test` 90 pass / 0 fail；`pnpm peers check` 无残留告警。
+
 ## 1.0.2 — 2026-11-12
 
 对齐 OpenCode 2.2.7：类型依赖升级，插件 API 无破坏性变更，运行时行为不变。

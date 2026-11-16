@@ -1,6 +1,6 @@
 {
   "name": "opencode-fine.search",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "OpenCode 会话全文检索插件：旁路 FTS5 索引 + Desktop GUI / TUI 入口",
   "type": "module",
   "license": "MIT",
@@ -15,9 +15,9 @@
     "build:gui": "vite build --config vite.config.ts"
   },
   "peerDependencies": {
-    "@opencode/plugin": "2.2.7",
-    "@opentui/core": ">=0.6.6",
-    "@opentui/solid": ">=0.6.6",
+    "@opencode/plugin": "2.3.0",
+    "@opentui/core": ">=0.8.4",
+    "@opentui/solid": ">=0.8.4",
     "solid-js": ">=1.9.0"
   }
 }
