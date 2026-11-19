@@ -3,7 +3,7 @@
 把 OpenCode 本地会话库变成**可检索的资产**：正文、工具输出、思考过程都能搜；
 不切页面，在当前会话里就能看另一个会话的全文。
 
-当前版本 **1.0.3**（2026-11-16）· 变更见 [CHANGELOG](./CHANGELOG.md) · [Releases](https://github.com/DoubleRow/opencode-fine.search/releases)
+当前版本 **1.1.0**（2026-11-19）· 变更见 [CHANGELOG](./CHANGELOG.md) · [Releases](https://github.com/DoubleRow/opencode-fine.search/releases)
 
 [![更好的opencode搜索演示封面](docs/media/opencode-search-cover.png)](https://www.bilibili.com/video/BV1pd4t6XErW/)
 

@@ -1,6 +1,6 @@
 {
   "name": "opencode-fine.search",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "OpenCode 会话全文检索：Desktop GUI + TUI 插件 + 旁路精确索引",
   "private": true,
   "type": "module",
