@@ -33,7 +33,7 @@
 | **GUI（Desktop）** | 非模态搜索浮层 + 右侧详情栏 | 桌面端日常使用，主界面不中断 |
 | **TUI（终端）** | 占满主内容区的两栏路由页 | 纯终端环境，键盘流操作 |
 
-> 现状：GUI（P1）与 TUI（P2）均已落地，自动化门禁 90 项测试全绿。
+> 现状：GUI（P1）与 TUI（P2）均已落地，自动化门禁 97 项测试全绿。
 > 语义检索（向量 lane）**尚未实现**，当前只有精确 / 模糊检索；视频片尾也做了标注。
 
 ## 特性
@@ -250,7 +250,7 @@ docs/                  方案、交接与实现记录
 ```bash
 pnpm lint         # oxlint（0 告警基线）
 pnpm typecheck    # tsc --noEmit（覆盖 plugin 的 ts/tsx）
-pnpm test         # node --test，90 项
+pnpm test         # node --test，97 项
 pnpm build:gui    # 构建 GUI 插件（CJS）
 pnpm dev:gui      # 监听重建
 ```

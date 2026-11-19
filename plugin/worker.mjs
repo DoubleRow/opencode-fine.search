@@ -9,24 +9,25 @@
  * 只读打开 opencode.db；只写 ~/.local/share/opencode-oc-search/index.db。
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 
-import { extractSegments, fingerprintOf } from "../lib/extract.mjs";
+import { extractSegments } from "../lib/extract.mjs";
 import {
   INDEX_PATH,
   deleteIndexMessage,
   deleteIndexSession,
   emptyStatus,
   getIndexSession,
-  getMessageFingerprints,
+  getMeta,
+  getSessionMessageWatermarks,
+  getSessionWatermarks,
   getSummary,
   indexCounts,
   indexStatus,
-  listIndexSessionIds,
   openIndex,
   readSegment,
   replaceIndexMessage,
@@ -47,12 +48,28 @@ const SOURCE_DB =
   process.env.OPENCODE_DB || join(homedir(), ".local/share/opencode", "opencode.db");
 
 const SYNC_INTERVAL_MS = 10_000;
-const BATCH_SIZE = 200;
+const BATCH_SIZE = 500;
 const MEMORY_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * 积压到这个量级就重建，而不是逐条缝补。
+ *
+ * 本机实测：顺序重建 1.8 ms/条，就地补丁 47 ms/条（约 25 倍差距），
+ * 所以超过这阈值时「另起新库 + 原子换代」既更快，也顺手清掉碎片。
+ */
+const REBUILD_THRESHOLD = (() => {
+  const raw = Number(process.env.OC_SEARCH_REBUILD_THRESHOLD);
+  return Number.isInteger(raw) && raw > 0 ? raw : 2000;
+})();
 
 let indexDb = null;
 let lastSyncCheck = 0;
 let memoryCache = { at: 0, map: new Map() };
+/** 本进程见过的源库指纹，用于 L0 免查询快速返回。 */
+let sigCache = { sig: "" };
+/** 计数与代际的内存副本：L0 命中时连这两条统计查询都省掉。 */
+let countsCache = null;
+let genCache = null;
 
 function log(message) {
   if (process.env.OC_SEARCH_VERBOSE === "1") {
@@ -150,70 +167,218 @@ function readSessionRows(source) {
   ).all();
 }
 
-function readMessageRows(source) {
-  return source.prepare(
-    `SELECT id, session_id, type, time_created, time_updated,
-            length(data) AS data_length
-     FROM session_message`,
+/**
+ * L1 会话水位：每条会话的条数 / 最大 seq / 最后写入时间。
+ *
+ * 全表按会话聚合在本机实测 13 ms（走 `(session_id, seq)` 索引，不读 data）。
+ */
+function readSessionAggregates(source) {
+  const rows = source.prepare(
+    `SELECT session_id AS id, count(*) AS n, max(seq) AS mx, max(time_updated) AS mt
+     FROM session_message GROUP BY session_id`,
   ).all();
+  const map = new Map();
+  for (const row of rows) {
+    map.set(String(row.id), {
+      msg_count: Number(row.n) || 0,
+      seq_max: Number(row.mx) || 0,
+      last_msg_updated: Number(row.mt) || 0,
+    });
+  }
+  return map;
+}
+
+/** L0 指纹：主库 + WAL 的 (size, mtime) 四元组。 */
+function sourceSignature(path = SOURCE_DB) {
+  const main = statSync(path);
+  let sig = `${main.size}:${Math.floor(main.mtimeMs)}`;
+  for (const suffix of ["-wal"]) {
+    try {
+      const side = statSync(`${path}${suffix}`);
+      sig += `|${side.size}:${Math.floor(side.mtimeMs)}`;
+    } catch {
+      sig += "|0:0";
+    }
+  }
+  return sig;
+}
+
+/** 把一条源库消息写进索引（含片段）。`idMap` 存在时沿用旧片段 id。 */
+function writeMessageRow(db, row, idMap) {
+  const segments = extractSegments({
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    type: String(row.type),
+    timeCreated: Number(row.time_created) || 0,
+    data: String(row.data),
+  });
+  const ids = idMap
+    ? segments.map((_, ordinal) => idMap.get(`${String(row.id)}#${ordinal}`))
+    : undefined;
+  replaceIndexMessage(
+    db,
+    {
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      type: String(row.type),
+      timeCreated: Number(row.time_created) || 0,
+      timeUpdated: Number(row.time_updated) || 0,
+      dataLength: Number(row.data_length) || 0,
+      seq: Number(row.seq) || 0,
+    },
+    segments,
+    ids ? { ids } : undefined,
+  );
+  return segments.length;
+}
+
+function syncResult(db, extra) {
+  const counts = countsCache ?? indexCounts(db);
+  return {
+    ok: true,
+    sourceDb: SOURCE_DB,
+    added: 0,
+    updated: 0,
+    removedMessages: 0,
+    removedSessions: 0,
+    changed: 0,
+    gen: genCache ?? (Number(getMeta(db, "gen")) || 0),
+    ...extra,
+    ...counts,
+  };
+}
+
+/** L0 命中：不发任何查询（计数走内存缓存）。 */
+function skippedSync(db, startedAt) {
+  return syncResult(db, {
+    skipped: true,
+    mode: "skip",
+    elapsedMs: Date.now() - startedAt,
+  });
 }
 
 /**
  * 全量/增量同步。返回本次改动统计。
+ *
+ * 三级闸门：
+ *   L0 源库文件指纹不变 → 直接返回（不扫表）；
+ *   L1 会话水位（条数/最大 seq/最后写入时间）不变 → 跳过该会话；
+ *   L2 只对变化会话逐条比对消息水位（不读 data）；
+ *   L3 只对真正变化的 id 读正文、重新切片段。
  */
 export function sync() {
-  // 先拿索引连接；源库打开失败时索引句柄仍可复用。
-  const db = getIndex();
-  const source = openSource();
   const startedAt = Date.now();
   const sourceState = sourceInfo();
+  const sig = sourceSignature();
+  const db = getIndex();
+  const pendingRebuild = getMeta(db, "rebuild_pending") === "1";
 
+  if (!pendingRebuild && sigCache.sig === sig) {
+    return skippedSync(db, startedAt);
+  }
+  if (!pendingRebuild && getMeta(db, "source_sig") === sig) {
+    sigCache = { sig };
+    return skippedSync(db, startedAt);
+  }
+
+  const source = openSource();
   try {
     const sourceSessions = readSessionRows(source);
-    const sourceMessages = readMessageRows(source);
-    const existing = getMessageFingerprints(db);
-    const existingSessions = listIndexSessionIds(db);
+    const aggregates = readSessionAggregates(source);
+    const indexSessions = getSessionWatermarks(db);
 
-    const sourceMessageIds = new Set();
+    const changedSessions = [];
+    const touchedSessionIds = [];
     const sourceSessionIds = new Set();
-    const changed = [];
-    let added = 0;
-    let updated = 0;
 
     for (const session of sourceSessions) {
-      sourceSessionIds.add(String(session.id));
-    }
-
-    for (const row of sourceMessages) {
-      const id = String(row.id);
-      sourceMessageIds.add(id);
-      const old = existing.get(id);
-      if (
+      const id = String(session.id);
+      sourceSessionIds.add(id);
+      const agg = aggregates.get(id) ?? { msg_count: 0, seq_max: 0, last_msg_updated: 0 };
+      const row = {
+        id,
+        title: session.title || "",
+        directory: session.directory || "",
+        parent_id: session.parent_id ?? null,
+        time_created: Number(session.time_created) || 0,
+        time_updated: Number(session.time_updated) || 0,
+        msg_count: agg.msg_count,
+        seq_max: agg.seq_max,
+        last_msg_updated: agg.last_msg_updated,
+      };
+      const old = indexSessions.get(id);
+      const drifted =
         !old ||
-        old.session_id !== String(row.session_id) ||
-        old.type !== String(row.type) ||
-        fingerprintOf(old) !== fingerprintOf(row)
-      ) {
-        changed.push(row);
-        if (old) updated += 1;
-        else added += 1;
+        old.msg_count !== row.msg_count ||
+        old.seq_max !== row.seq_max ||
+        old.last_msg_updated !== row.last_msg_updated ||
+        old.title !== row.title ||
+        old.directory !== row.directory ||
+        old.parent_id !== row.parent_id ||
+        old.time_created !== row.time_created ||
+        old.time_updated !== row.time_updated;
+      if (drifted) {
+        changedSessions.push(row);
+        touchedSessionIds.push(id);
       }
     }
 
-    const removedMessages = [];
-    for (const id of existing.keys()) {
-      if (!sourceMessageIds.has(id)) removedMessages.push(id);
-    }
-
     const removedSessions = [];
-    for (const id of existingSessions) {
+    for (const id of indexSessions.keys()) {
       if (!sourceSessionIds.has(id)) removedSessions.push(id);
     }
 
-    // 会话元信息量小，直接整体覆盖。
+    // L2：只对水位变过的会话逐条比对，不读正文。
+    const listSessionMessages = source.prepare(
+      `SELECT id, session_id, type, seq, time_created, time_updated,
+              length(data) AS data_length
+       FROM session_message WHERE session_id = ?`,
+    );
+    const changedMessages = [];
+    const removedMessageIds = [];
+    let addedCount = 0;
+    let updatedCount = 0;
+    for (const sessionId of touchedSessionIds) {
+      const rows = listSessionMessages.all(sessionId);
+      const old = getSessionMessageWatermarks(db, sessionId);
+      const seen = new Set();
+      for (const row of rows) {
+        const id = String(row.id);
+        seen.add(id);
+        const prev = old.get(id);
+        if (
+          !prev ||
+          prev.type !== String(row.type) ||
+          prev.seq !== (Number(row.seq) || 0) ||
+          prev.time_updated !== (Number(row.time_updated) || 0) ||
+          prev.data_length !== (Number(row.data_length) || 0)
+        ) {
+          changedMessages.push(row);
+          if (prev) updatedCount += 1;
+          else addedCount += 1;
+        }
+      }
+      for (const id of old.keys()) {
+        if (!seen.has(id)) removedMessageIds.push(id);
+      }
+    }
+
+    const counts = indexCounts(db);
+    const totalChanges = changedMessages.length + removedMessageIds.length + removedSessions.length;
+    if (pendingRebuild || counts.segments === 0 || totalChanges >= REBUILD_THRESHOLD) {
+      return rebuildIndex(source, sourceState, sig, startedAt, {
+        reason: pendingRebuild
+          ? "schema 迁移后首次同步"
+          : counts.segments === 0
+            ? "索引为空"
+            : `积压 ${totalChanges} 条 ≥ 阈值 ${REBUILD_THRESHOLD}`,
+        totalChanges,
+      });
+    }
+
     db.exec("BEGIN");
     try {
-      for (const session of sourceSessions) upsertSession(db, session);
+      for (const row of changedSessions) upsertSession(db, row);
       for (const id of removedSessions) deleteIndexSession(db, id);
       db.exec("COMMIT");
     } catch (error) {
@@ -221,41 +386,32 @@ export function sync() {
       throw error;
     }
 
-    for (const id of removedMessages) deleteIndexMessage(db, id);
+    if (removedMessageIds.length) {
+      db.exec("BEGIN");
+      try {
+        for (const id of removedMessageIds) deleteIndexMessage(db, id);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    }
 
     const fetchMessage = source.prepare(
-      `SELECT id, session_id, type, time_created, time_updated,
+      `SELECT id, session_id, type, seq, time_created, time_updated,
               length(data) AS data_length, data
        FROM session_message WHERE id = ?`,
     );
 
     let done = 0;
-    for (let offset = 0; offset < changed.length; offset += BATCH_SIZE) {
-      const batch = changed.slice(offset, offset + BATCH_SIZE);
+    for (let offset = 0; offset < changedMessages.length; offset += BATCH_SIZE) {
+      const batch = changedMessages.slice(offset, offset + BATCH_SIZE);
       db.exec("BEGIN");
       try {
         for (const row of batch) {
           const full = fetchMessage.get(String(row.id));
           if (!full) continue;
-          const segments = extractSegments({
-            id: String(full.id),
-            sessionId: String(full.session_id),
-            type: String(full.type),
-            timeCreated: Number(full.time_created) || 0,
-            data: String(full.data),
-          });
-          replaceIndexMessage(
-            db,
-            {
-              id: String(full.id),
-              sessionId: String(full.session_id),
-              type: String(full.type),
-              timeCreated: Number(full.time_created) || 0,
-              timeUpdated: Number(full.time_updated) || 0,
-              dataLength: Number(full.data_length) || 0,
-            },
-            segments,
-          );
+          writeMessageRow(db, full);
           done += 1;
         }
         db.exec("COMMIT");
@@ -263,28 +419,33 @@ export function sync() {
         db.exec("ROLLBACK");
         throw error;
       }
-      log(`同步进度 ${Math.min(offset + BATCH_SIZE, changed.length)}/${changed.length}`);
+      log(`同步进度 ${Math.min(offset + BATCH_SIZE, changedMessages.length)}/${changedMessages.length}`);
     }
 
+    const elapsedMs = Date.now() - startedAt;
     setMeta(db, "last_sync_at", Date.now());
     setMeta(db, "source_path", sourceState.path);
     setMeta(db, "source_mtime", sourceState.mtime);
     setMeta(db, "source_size", sourceState.size);
+    setMeta(db, "source_sig", sig);
+    setMeta(db, "last_sync_ms", elapsedMs);
+    setMeta(db, "last_sync_skipped", "0");
     setMeta(db, "last_error", "");
+    sigCache = { sig };
+    countsCache = indexCounts(db);
+    genCache = Number(getMeta(db, "gen")) || 0;
 
-    const counts = indexCounts(db);
-    const elapsedMs = Date.now() - startedAt;
-    return {
-      ok: true,
-      sourceDb: sourceState.path,
-      added,
-      updated,
-      removedMessages: removedMessages.length,
+    return syncResult(db, {
+      skipped: false,
+      mode: "incremental",
+      added: addedCount,
+      updated: updatedCount,
+      removedMessages: removedMessageIds.length,
       removedSessions: removedSessions.length,
-      changed: changed.length,
+      changed: changedMessages.length,
+      written: done,
       elapsedMs,
-      ...counts,
-    };
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -295,6 +456,181 @@ export function sync() {
     throw error;
   } finally {
     source.close();
+  }
+}
+
+/**
+ * 重建模式：写到 `<索引>.new`，校验通过后原子换代。
+ *
+ * 失败时删掉半成品、保留旧索引并向上抛错。
+ */
+function rebuildIndex(source, sourceState, sig, startedAt, detail) {
+  const db = getIndex();
+  const prevGen = Number(getMeta(db, "gen")) || 0;
+  const tempPath = `${INDEX_PATH}.new`;
+  removeFile(tempPath);
+
+  const sourceSessions = readSessionRows(source);
+  const aggregates = readSessionAggregates(source);
+  const oldSegmentIds = readSegmentIdMap(db);
+  let fresh = null;
+  let written = 0;
+
+  try {
+    fresh = openIndex(tempPath);
+    // 重建产物是临时文件，校验不过就整个删掉：关掉回滚日志与 fsync 换速度。
+    // 本机机械盘上这一步能把 18,900 段的写入从 45 s 压到 20 s 以内。
+    fresh.exec("PRAGMA journal_mode = OFF;");
+    fresh.exec("PRAGMA synchronous = OFF;");
+
+    fresh.exec("BEGIN");
+    try {
+      for (const session of sourceSessions) {
+        const id = String(session.id);
+        const agg = aggregates.get(id) ?? { msg_count: 0, seq_max: 0, last_msg_updated: 0 };
+        upsertSession(fresh, {
+          id,
+          title: session.title || "",
+          directory: session.directory || "",
+          parent_id: session.parent_id ?? null,
+          time_created: Number(session.time_created) || 0,
+          time_updated: Number(session.time_updated) || 0,
+          msg_count: agg.msg_count,
+          seq_max: agg.seq_max,
+          last_msg_updated: agg.last_msg_updated,
+        });
+      }
+      fresh.exec("COMMIT");
+    } catch (error) {
+      fresh.exec("ROLLBACK");
+      throw error;
+    }
+
+    // 分页读源库正文：单页 BATCH_SIZE 条，避免整会话读进内存。
+    const pageStmt = source.prepare(
+      `SELECT id, session_id, type, seq, time_created, time_updated,
+              length(data) AS data_length, data
+       FROM session_message
+       WHERE session_id = ? AND seq > ?
+       ORDER BY seq
+       LIMIT ?`,
+    );
+    for (const session of sourceSessions) {
+      const sessionId = String(session.id);
+      let lastSeq = Number.MIN_SAFE_INTEGER;
+      while (true) {
+        const batch = pageStmt.all(sessionId, lastSeq, BATCH_SIZE);
+        if (!batch.length) break;
+        fresh.exec("BEGIN");
+        try {
+          for (const row of batch) {
+            writeMessageRow(fresh, row, oldSegmentIds);
+            written += 1;
+          }
+          fresh.exec("COMMIT");
+        } catch (error) {
+          fresh.exec("ROLLBACK");
+          throw error;
+        }
+        lastSeq = Number(batch[batch.length - 1].seq) || lastSeq + batch.length;
+        log(`重建进度 ${written}`);
+      }
+    }
+
+    const sourceSessionCount = Number(
+      source.prepare("SELECT count(*) AS c FROM session_v2").get()?.c,
+    ) || 0;
+    const sourceMessageCount = Number(
+      source.prepare("SELECT count(*) AS c FROM session_message").get()?.c,
+    ) || 0;
+    const built = indexCounts(fresh);
+    if (built.sessions !== sourceSessionCount || built.messages !== sourceMessageCount) {
+      throw new Error(
+        `重建校验失败：源库 ${sourceSessionCount} 会话 / ${sourceMessageCount} 消息，` +
+          `新索引 ${built.sessions} / ${built.messages}`,
+      );
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    setMeta(fresh, "gen", prevGen + 1);
+    setMeta(fresh, "source_path", sourceState.path);
+    setMeta(fresh, "source_mtime", sourceState.mtime);
+    setMeta(fresh, "source_size", sourceState.size);
+    setMeta(fresh, "source_sig", sig);
+    setMeta(fresh, "last_sync_at", Date.now());
+    setMeta(fresh, "last_sync_ms", elapsedMs);
+    setMeta(fresh, "last_sync_skipped", "0");
+    setMeta(fresh, "rebuild_pending", "0");
+    setMeta(fresh, "last_error", "");
+  } catch (error) {
+    try {
+      fresh?.close();
+    } catch {
+      // 半成品句柄关闭失败不影响清理。
+    }
+    removeFile(tempPath);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`索引重建失败，旧索引保留：${message}`);
+  }
+
+  try {
+    fresh.close();
+  } catch {
+    // 关闭失败不阻断换代：Linux 上 rename 与句柄无关。
+  }
+  closeIndex();
+  // 旧索引的 WAL 附属文件必须先清掉，不能让它挂到新文件上。
+  removeFile(`${INDEX_PATH}-wal`);
+  removeFile(`${INDEX_PATH}-shm`);
+
+  try {
+    renameSync(tempPath, INDEX_PATH);
+  } catch (error) {
+    removeFile(tempPath);
+    getIndex();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`索引换代失败，旧索引保留：${message}`);
+  }
+
+  const swapped = getIndex();
+  sigCache = { sig };
+  countsCache = indexCounts(swapped);
+  genCache = prevGen + 1;
+  const elapsedMs = Date.now() - startedAt;
+  return syncResult(swapped, {
+    skipped: false,
+    mode: "rebuild",
+    reason: detail.reason,
+    changed: detail.totalChanges,
+    written,
+    gen: prevGen + 1,
+    elapsedMs,
+  });
+}
+
+/** 现役索引里 (message_id, ordinal) → segment id，重建时沿用，保证重建前后 id 稳定。 */
+function readSegmentIdMap(db) {
+  try {
+    const rows = db.prepare("SELECT id, message_id, ordinal FROM segment").all();
+    const map = new Map();
+    for (const row of rows) {
+      map.set(`${String(row.message_id)}#${Number(row.ordinal) || 0}`, Number(row.id) || 0);
+    }
+    return map;
+  } catch {
+    // 旧索引不可读时退回全新 id，不影响正确性。
+    return new Map();
+  }
+}
+
+/** 删掉索引文件及其 WAL 附属文件，容忍不存在。 */
+function removeFile(path) {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    try {
+      rmSync(`${path}${suffix}`, { force: true });
+    } catch {
+      // 清理失败由后续报错暴露。
+    }
   }
 }
 
@@ -477,6 +813,7 @@ search 选项:
 环境变量:
   OPENCODE_DB           覆盖会话库路径
   OC_SEARCH_INDEX       覆盖索引文件路径
+  OC_SEARCH_REBUILD_THRESHOLD  积压多少条改走重建（默认 2000）
   OC_SEARCH_VERBOSE=1   输出同步进度到 stderr
 `;
 
@@ -579,6 +916,9 @@ async function runCli(argv) {
           `  索引 ${state.dbPath}\n` +
           `  源库 ${state.sourceDb}\n` +
           (state.lastSyncAt ? `  上次同步 ${formatTime(state.lastSyncAt)}\n` : "") +
+          `  生成 ${state.gen}  耗时 ${state.lastSyncMs ? `${state.lastSyncMs} ms` : "—"}` +
+          `${state.lastSyncSkipped ? "（空转跳过）" : ""}\n` +
+          (state.sourceSig ? `  源库指纹 ${state.sourceSig}\n` : "") +
           (state.error ? `  错误 ${state.error}\n` : ""),
       );
     }
@@ -589,11 +929,14 @@ async function runCli(argv) {
     const result = sync();
     if (opts.json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else if (result.skipped) {
+      process.stdout.write(`空转跳过（${result.elapsedMs} ms）：源库文件指纹未变\n`);
     } else {
+      const mode = result.mode === "rebuild" ? "重建" : "增量";
       process.stdout.write(
-        `同步完成（${result.elapsedMs} ms）\n` +
+        `同步完成（${mode}${result.reason ? `：${result.reason}` : ""}，${result.elapsedMs} ms）\n` +
           `  新增 ${result.added}  更新 ${result.updated}  删除消息 ${result.removedMessages}  删除会话 ${result.removedSessions}\n` +
-          `  现有 会话 ${result.sessions}  消息 ${result.messages}  片段 ${result.segments}\n`,
+          `  现有 会话 ${result.sessions}  消息 ${result.messages}  片段 ${result.segments}  生成 ${result.gen}\n`,
       );
     }
     return 0;
@@ -785,6 +1128,8 @@ function closeIndex() {
     // 退出路径上忽略关闭错误。
   }
   indexDb = null;
+  countsCache = null;
+  genCache = null;
 }
 
 async function main() {
