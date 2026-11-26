@@ -4,6 +4,23 @@
 新增能力走 MINOR，破坏性变更走 MAJOR。每个正式版本发布时同步更新 `package.json` 与 `plugin/package.json`
 的 `version`，并把「未发布」段落切成带日期的版本标题。条目按 `新增 / 变更 / 修复 / 移除 / 性能 / 文档` 归类。
 
+## 1.1.1 — 2026-11-26
+
+修复：适配宿主 2.4.0 的 `session_part` 行式存储。检索逻辑、排序、片段格式一律未变。
+
+### 修复
+
+- **适配 `session_part` 行式存储**（宿主 2.4.0 起 assistant 消息正文改存 part 行，
+  `content` 恒为空数组）：抽取改为双源——优先读 part 行（text → assistant、
+  reasoning → reasoning、tool → tool），part 为空时回退原内联 `content` 路径，
+  内联输出与旧实现逐字节一致。
+- **水位五元组**：session 维度在 `count / max(seq) / max(time_updated)` 基础上新增
+  `part_count / part_max_updated`，part 行流式落库（消息行 time_updated 随之推进）
+  的会话能被 L1 识别并重抽。
+- **gap 可观测**：content 与 part 均为空的消息计入 gap，`sync` 输出与 `status`
+  新增 `partRows` / `gaps` 字段；gap > 0 时 CLI 输出黄色提示（可能是存储格式变化）。
+- schema 升到 v4：`session` 新增 `part_count` / `part_max_updated`，写打开时原地迁移。
+
 ## 1.1.0 — 2026-11-19
 
 索引架构 v3：把「每次同步扫全库」换成三级变更检测，并给写入加双模式。

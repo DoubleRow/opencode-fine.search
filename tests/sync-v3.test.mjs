@@ -324,7 +324,7 @@ test("v2 索引写打开时迁移到 v3，查询结果不变", () =>
     const version = upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get();
     const pending = upgraded.prepare("SELECT value FROM meta WHERE key = 'rebuild_pending'").get();
     upgraded.close();
-    assert.equal(String(version.value), "3");
+    assert.equal(String(version.value), "4");
     assert.equal(String(pending.value), "0");
 
     // 迁移后列值已补齐，再同步应走 L0 跳过。

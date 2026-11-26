@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 
-import { extractSegments } from "../lib/extract.mjs";
+import { extractSegmentsDual } from "../lib/extract.mjs";
 import {
   INDEX_PATH,
   deleteIndexMessage,
@@ -117,6 +117,22 @@ function getIndex() {
   return indexDb;
 }
 
+/** 源库 session_part 总行数（旧宿主无表或源库不可读时为 0）。 */
+function sourcePartRowCount() {
+  try {
+    const source = openSource();
+    try {
+      if (!hasPartTable(source)) return 0;
+      const row = source.prepare("SELECT count(*) AS c FROM session_part").get();
+      return Number(row?.c) || 0;
+    } finally {
+      source.close();
+    }
+  } catch {
+    return 0;
+  }
+}
+
 /** 当前索引状态，不创建文件。 */
 export function status() {
   let source;
@@ -143,6 +159,7 @@ export function status() {
     const state = indexStatus(db, {
       dbPath: INDEX_PATH,
       sourceDb: source.path,
+      partRows: sourcePartRowCount(),
     });
     db.close();
     return state;
@@ -168,9 +185,30 @@ function readSessionRows(source) {
 }
 
 /**
- * L1 会话水位：每条会话的条数 / 最大 seq / 最后写入时间。
+ * 源库有没有 `session_part` 表（宿主 2.4.0 起才有）。探测一次，进程内缓存。
  *
- * 全表按会话聚合在本机实测 13 ms（走 `(session_id, seq)` 索引，不读 data）。
+ * 旧宿主上该表不存在，part 维度水位恒为 0，同步行为与 v3 一致。
+ */
+let partTableCache = null;
+function hasPartTable(source) {
+  if (partTableCache !== null) return partTableCache;
+  try {
+    const row = source.prepare(
+      "SELECT count(*) AS c FROM sqlite_master WHERE type = 'table' AND name = 'session_part'",
+    ).get();
+    partTableCache = Number(row?.c) > 0;
+  } catch {
+    partTableCache = false;
+  }
+  return partTableCache;
+}
+
+/**
+ * L1 会话水位：每条会话的消息维度 + part 维度（五元组）。
+ *
+ * 消息部分走 `(session_id, seq)` 索引（本机实测 13 ms）；
+ * part 部分走 `(session_id, …)` 聚合（本机实测 < 5 ms）。
+ * 源库没有 session_part 表（旧宿主）时 part 维度恒 0。
  */
 function readSessionAggregates(source) {
   const rows = source.prepare(
@@ -183,7 +221,32 @@ function readSessionAggregates(source) {
       msg_count: Number(row.n) || 0,
       seq_max: Number(row.mx) || 0,
       last_msg_updated: Number(row.mt) || 0,
+      part_count: 0,
+      part_max_updated: 0,
     });
+  }
+  if (hasPartTable(source)) {
+    const partRows = source.prepare(
+      `SELECT session_id AS id, count(*) AS pc, max(time_updated) AS pmt
+       FROM session_part GROUP BY session_id`,
+    ).all();
+    for (const row of partRows) {
+      const id = String(row.id);
+      const agg = map.get(id);
+      if (agg) {
+        agg.part_count = Number(row.pc) || 0;
+        agg.part_max_updated = Number(row.pmt) || 0;
+      } else {
+        // 有 part 却没有消息行：外键级联下不该发生，防御性兜底。
+        map.set(id, {
+          msg_count: 0,
+          seq_max: 0,
+          last_msg_updated: 0,
+          part_count: Number(row.pc) || 0,
+          part_max_updated: Number(row.pmt) || 0,
+        });
+      }
+    }
   }
   return map;
 }
@@ -203,15 +266,24 @@ function sourceSignature(path = SOURCE_DB) {
   return sig;
 }
 
-/** 把一条源库消息写进索引（含片段）。`idMap` 存在时沿用旧片段 id。 */
-function writeMessageRow(db, row, idMap) {
-  const segments = extractSegments({
-    id: String(row.id),
-    sessionId: String(row.session_id),
-    type: String(row.type),
-    timeCreated: Number(row.time_created) || 0,
-    data: String(row.data),
+/**
+ * 把一条源库消息写进索引（含片段），part 行优先、内联兜底。
+ *
+ * `idMap` 存在时沿用旧片段 id。返回抽取结果（含路径与 gap 标记），
+ * 供同步层做可观测统计。
+ */
+function writeMessageRow(db, row, idMap, partRows) {
+  const segmentsResult = extractSegmentsDual({
+    messageRow: {
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      type: String(row.type),
+      timeCreated: Number(row.time_created) || 0,
+      data: String(row.data),
+    },
+    partRows: partRows?.get(String(row.id)),
   });
+  const { segments, gap, path } = segmentsResult;
   const ids = idMap
     ? segments.map((_, ordinal) => idMap.get(`${String(row.id)}#${ordinal}`))
     : undefined;
@@ -229,7 +301,42 @@ function writeMessageRow(db, row, idMap) {
     segments,
     ids ? { ids } : undefined,
   );
-  return segments.length;
+  return { segments: segments.length, gap, path };
+}
+
+/**
+ * 批量读 session_part 行（宿主 2.4.0 起的行式存储），按 (message_id, ordinal) 排序。
+ *
+ * 单条 SQL 的 IN 列表不超过 BATCH_SIZE（500），防 SQLite 变量上限；
+ * 源库没有该表（旧宿主）时返回空 Map。
+ *
+ * @returns {Map<string, { type: string, data: unknown }[]>} message_id → 按 ordinal 升序的 part 行
+ */
+function readPartRows(source, messageIds) {
+  const map = new Map();
+  if (!messageIds.length || !hasPartTable(source)) return map;
+  const stmt = source.prepare(
+    `SELECT message_id, ordinal, type, data
+     FROM session_part WHERE message_id IN (${messageIds.map(() => "?").join(", ")})
+     ORDER BY message_id, ordinal`,
+  );
+  for (let offset = 0; offset < messageIds.length; offset += BATCH_SIZE) {
+    const batch = messageIds.slice(offset, offset + BATCH_SIZE);
+    for (const row of stmt.all(...batch)) {
+      const id = String(row.message_id);
+      let data = null;
+      try {
+        data = JSON.parse(String(row.data ?? ""));
+      } catch {
+        data = null;
+      }
+      const list = map.get(id);
+      const part = { type: String(row.type ?? ""), data };
+      if (list) list.push(part);
+      else map.set(id, [part]);
+    }
+  }
+  return map;
 }
 
 function syncResult(db, extra) {
@@ -294,7 +401,13 @@ export function sync() {
     for (const session of sourceSessions) {
       const id = String(session.id);
       sourceSessionIds.add(id);
-      const agg = aggregates.get(id) ?? { msg_count: 0, seq_max: 0, last_msg_updated: 0 };
+      const agg = aggregates.get(id) ?? {
+        msg_count: 0,
+        seq_max: 0,
+        last_msg_updated: 0,
+        part_count: 0,
+        part_max_updated: 0,
+      };
       const row = {
         id,
         title: session.title || "",
@@ -305,6 +418,8 @@ export function sync() {
         msg_count: agg.msg_count,
         seq_max: agg.seq_max,
         last_msg_updated: agg.last_msg_updated,
+        part_count: agg.part_count,
+        part_max_updated: agg.part_max_updated,
       };
       const old = indexSessions.get(id);
       const drifted =
@@ -312,6 +427,8 @@ export function sync() {
         old.msg_count !== row.msg_count ||
         old.seq_max !== row.seq_max ||
         old.last_msg_updated !== row.last_msg_updated ||
+        old.part_count !== row.part_count ||
+        old.part_max_updated !== row.part_max_updated ||
         old.title !== row.title ||
         old.directory !== row.directory ||
         old.parent_id !== row.parent_id ||
@@ -404,14 +521,21 @@ export function sync() {
     );
 
     let done = 0;
+    let partPathCount = 0;
+    let inlinePathCount = 0;
+    const gapIds = [];
     for (let offset = 0; offset < changedMessages.length; offset += BATCH_SIZE) {
       const batch = changedMessages.slice(offset, offset + BATCH_SIZE);
+      const partRows = readPartRows(source, batch.map((row) => String(row.id)));
       db.exec("BEGIN");
       try {
         for (const row of batch) {
           const full = fetchMessage.get(String(row.id));
           if (!full) continue;
-          writeMessageRow(db, full);
+          const result = writeMessageRow(db, full, undefined, partRows);
+          if (result.path === "part") partPathCount += 1;
+          else if (result.path === "inline") inlinePathCount += 1;
+          if (result.gap) gapIds.push(String(row.id));
           done += 1;
         }
         db.exec("COMMIT");
@@ -430,6 +554,7 @@ export function sync() {
     setMeta(db, "source_sig", sig);
     setMeta(db, "last_sync_ms", elapsedMs);
     setMeta(db, "last_sync_skipped", "0");
+    setMeta(db, "last_gap_count", String(gapIds.length));
     setMeta(db, "last_error", "");
     sigCache = { sig };
     countsCache = indexCounts(db);
@@ -444,6 +569,10 @@ export function sync() {
       removedSessions: removedSessions.length,
       changed: changedMessages.length,
       written: done,
+      partPath: partPathCount,
+      inlinePath: inlinePathCount,
+      gaps: gapIds.length,
+      gapSamples: gapIds.slice(0, 10),
       elapsedMs,
     });
   } catch (error) {
@@ -475,6 +604,9 @@ function rebuildIndex(source, sourceState, sig, startedAt, detail) {
   const oldSegmentIds = readSegmentIdMap(db);
   let fresh = null;
   let written = 0;
+  let partPathCount = 0;
+  let inlinePathCount = 0;
+  const gapIds = [];
 
   try {
     fresh = openIndex(tempPath);
@@ -521,10 +653,14 @@ function rebuildIndex(source, sourceState, sig, startedAt, detail) {
       while (true) {
         const batch = pageStmt.all(sessionId, lastSeq, BATCH_SIZE);
         if (!batch.length) break;
+        const partRows = readPartRows(source, batch.map((row) => String(row.id)));
         fresh.exec("BEGIN");
         try {
           for (const row of batch) {
-            writeMessageRow(fresh, row, oldSegmentIds);
+            const result = writeMessageRow(fresh, row, oldSegmentIds, partRows);
+            if (result.path === "part") partPathCount += 1;
+            else if (result.path === "inline") inlinePathCount += 1;
+            if (result.gap) gapIds.push(String(row.id));
             written += 1;
           }
           fresh.exec("COMMIT");
@@ -561,6 +697,7 @@ function rebuildIndex(source, sourceState, sig, startedAt, detail) {
     setMeta(fresh, "last_sync_ms", elapsedMs);
     setMeta(fresh, "last_sync_skipped", "0");
     setMeta(fresh, "rebuild_pending", "0");
+    setMeta(fresh, "last_gap_count", String(gapIds.length));
     setMeta(fresh, "last_error", "");
   } catch (error) {
     try {
@@ -603,6 +740,10 @@ function rebuildIndex(source, sourceState, sig, startedAt, detail) {
     reason: detail.reason,
     changed: detail.totalChanges,
     written,
+    partPath: partPathCount,
+    inlinePath: inlinePathCount,
+    gaps: gapIds.length,
+    gapSamples: gapIds.slice(0, 10),
     gen: prevGen + 1,
     elapsedMs,
   });
@@ -913,6 +1054,10 @@ async function runCli(argv) {
       process.stdout.write(
         `${state.ready ? "就绪" : "未就绪"}  ${state.reason || "索引可用"}\n` +
           `  会话 ${state.indexedSessions}  消息 ${state.indexedMessages}  片段 ${state.indexedSegments}\n` +
+          `  part 行 ${state.partRows}  抽取空洞 ${state.gaps}\n` +
+          (state.gaps > 0 && opts.color
+            ? `  \x1b[33m⚠ ${state.gaps} 条消息无可抽取内容（可能是存储格式变化）\x1b[0m\n`
+            : "") +
           `  索引 ${state.dbPath}\n` +
           `  源库 ${state.sourceDb}\n` +
           (state.lastSyncAt ? `  上次同步 ${formatTime(state.lastSyncAt)}\n` : "") +
@@ -933,9 +1078,13 @@ async function runCli(argv) {
       process.stdout.write(`空转跳过（${result.elapsedMs} ms）：源库文件指纹未变\n`);
     } else {
       const mode = result.mode === "rebuild" ? "重建" : "增量";
+      const gapNote = result.gaps > 0
+        ? `\n  \x1b[33m⚠ ${result.gaps} 条消息无可抽取内容（可能是存储格式变化）\x1b[0m`
+        : "";
       process.stdout.write(
         `同步完成（${mode}${result.reason ? `：${result.reason}` : ""}，${result.elapsedMs} ms）\n` +
           `  新增 ${result.added}  更新 ${result.updated}  删除消息 ${result.removedMessages}  删除会话 ${result.removedSessions}\n` +
+          `  part 路径: ${result.partPath ?? 0} 条 / 内联路径: ${result.inlinePath ?? 0} 条 / gap: ${result.gaps ?? 0} 条${gapNote}\n` +
           `  现有 会话 ${result.sessions}  消息 ${result.messages}  片段 ${result.segments}  生成 ${result.gen}\n`,
       );
     }
@@ -1130,6 +1279,7 @@ function closeIndex() {
   indexDb = null;
   countsCache = null;
   genCache = null;
+  partTableCache = null;
 }
 
 async function main() {

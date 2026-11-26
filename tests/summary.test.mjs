@@ -101,13 +101,13 @@ test("摘要优先级：LLM > 记忆 > 自动", () => {
   );
 });
 
-test("summary 表可写入/读取，v1 索引写打开时迁移到 v3", () => {
+test("summary 表可写入/读取，v1 索引写打开时迁移到 v4", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-summary-test-"));
   const path = join(dir, "index.db");
 
   try {
     let db = openIndex(path);
-    assert.equal(getMeta(db, "schema_version"), "3");
+    assert.equal(getMeta(db, "schema_version"), "4");
     saveSummary(db, {
       sessionId: "ses_a",
       source: "llm",
@@ -132,7 +132,7 @@ test("summary 表可写入/读取，v1 索引写打开时迁移到 v3", () => {
     db.close();
 
     db = openIndex(path);
-    assert.equal(getMeta(db, "schema_version"), "3");
+    assert.equal(getMeta(db, "schema_version"), "4");
     assert.equal(getSummary(db, "ses_a"), null);
     saveSummary(db, {
       sessionId: "ses_b",
