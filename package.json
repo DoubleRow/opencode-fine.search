@@ -1,6 +1,6 @@
 {
   "name": "opencode-fine.search",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "OpenCode 会话全文检索：Desktop GUI + TUI 插件 + 旁路精确索引",
   "private": true,
   "type": "module",
@@ -13,11 +13,11 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "@opencode/client": "2.3.0",
-    "@opencode/plugin": "2.3.0",
-    "@opencode/theme": "2.3.0",
-    "@opentui/core": "0.8.4",
-    "@opentui/solid": "0.8.4",
+    "@opencode/client": "2.4.2",
+    "@opencode/plugin": "2.4.2",
+    "@opencode/theme": "2.4.2",
+    "@opentui/core": "0.9.9",
+    "@opentui/solid": "0.9.9",
     "@types/node": "26.6.6",
     "effect": "4.1.0",
     "electron": "45.2.2",

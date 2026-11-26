@@ -4,6 +4,22 @@
 新增能力走 MINOR，破坏性变更走 MAJOR。每个正式版本发布时同步更新 `package.json` 与 `plugin/package.json`
 的 `version`，并把「未发布」段落切成带日期的版本标题。条目按 `新增 / 变更 / 修复 / 移除 / 性能 / 文档` 归类。
 
+## 1.1.2 — 2026-11-26
+
+依赖对齐：SDK 2.3.0 → 2.4.2（宿主现运行 2.4.2）。无破坏性变更，
+检索逻辑、索引行为与片段格式一律未变。
+
+### 变更
+
+- `@opencode/{client,plugin,theme}` 2.3.0 → **2.4.2**：plugin dist 运行时仅
+  `promise/adapter.js` 变化（tool hook 语义，本插件未使用 hook）；GUI vite 运行时未变；
+  类型为增量新增（如 `tui/context.d.ts` 的 `api.data.job.list`）。图标目录
+  `IconName` 改名 `AppIconName`（本插件只传字符串字面量，不受影响）。
+- `@opentui/{core,solid}` 0.8.4 → **0.9.9**：宿主 2.4.0 起 TUI 新设计默认开启，
+  plugin 2.4.2 的 devDependencies 与 0.9.9 官方配对，跟宿主走。
+- **`effect` 保持 4.1.0**：npm 已有 4.1.5，但 plugin / client 精确锁 4.1.0，
+  不跟浮。
+
 ## 1.1.1 — 2026-11-26
 
 修复：适配宿主 2.4.0 的 `session_part` 行式存储。检索逻辑、排序、片段格式一律未变。

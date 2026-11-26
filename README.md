@@ -3,7 +3,7 @@
 把 OpenCode 本地会话库变成**可检索的资产**：正文、工具输出、思考过程都能搜；
 不切页面，在当前会话里就能看另一个会话的全文。
 
-当前版本 **1.1.1**（2026-11-26）· 变更见 [CHANGELOG](./CHANGELOG.md) · [Releases](https://github.com/DoubleRow/opencode-fine.search/releases)
+当前版本 **1.1.2**（2026-11-26）· 变更见 [CHANGELOG](./CHANGELOG.md) · [Releases](https://github.com/DoubleRow/opencode-fine.search/releases)
 
 [![更好的opencode搜索演示封面](docs/media/opencode-search-cover.png)](https://www.bilibili.com/video/BV1pd4t6XErW/)
 
@@ -60,7 +60,7 @@
 
 ## 安装
 
-前置：Node ≥ 22.5（使用内置 `node:sqlite`）、pnpm、OpenCode ≥ 2.2.5（开发与构建的类型依赖已对齐 2.3.0）。
+前置：Node ≥ 22.5（使用内置 `node:sqlite`）、pnpm、OpenCode ≥ 2.2.5（开发与构建的类型依赖已对齐 2.4.2）。
 
 ```bash
 pnpm install      # 只有开发依赖；运行时依赖为 0
@@ -74,6 +74,17 @@ pnpm build:gui    # 构建 Desktop 插件产物 plugin/dist/gui-experimental.cjs
   "plugins": ["/absolute/path/to/opencode-fine.search/plugin"]
 }
 ```
+
+也可以直接用 npm 包名安装（推荐**跟随区间**写法，随宿主自动更新）：
+
+```jsonc
+{
+  "plugins": ["opencode-fine.search@^1.1.2"]
+}
+```
+
+> OpenCode 2.4.0 起（[#64764](https://github.com/sst/opencode/pull/64764)），区间写法
+> （`^x.y.z`）的插件会随宿主自动更新；精确版本（`x.y.z`）不会自动更新。
 
 同一个目录同时提供两个导出：
 
